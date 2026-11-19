@@ -84,7 +84,7 @@ impl DiskApp {
         cand.truncate(MAX_LABELS);
         let labels: Vec<AnyElement> = cand.into_iter().map(|i| label(&t, tree, &tiles[i])).collect();
 
-        let status = self.render_status(&t);
+        let status = self.render_status(&t, cx).into_any_element();
         div()
             .flex()
             .flex_col()
@@ -145,7 +145,7 @@ impl DiskApp {
         hit(&self.tiles, x, y).map(|t| t.node)
     }
 
-    fn render_status(&self, t: &Tokens) -> impl IntoElement {
+    fn render_status(&self, t: &Tokens, cx: &mut Context<Self>) -> impl IntoElement {
         let text = match (&self.tree, self.hovered) {
             (Some(tree), Some(id)) => {
                 let n = tree.node(id);
@@ -154,7 +154,17 @@ impl DiskApp {
             }
             _ => i18n::t!("app.status.hint", copy = crate::app::COPY_KEYS),
         };
-        div().flex_none().h(px(26.)).px(px(12.)).flex().items_center().text_size(px(12.)).text_color(t.ink_muted).truncate().child(text)
+        div()
+            .flex_none()
+            .h(px(26.))
+            .px(px(12.))
+            .flex()
+            .items_center()
+            .gap(px(16.))
+            .text_size(px(12.))
+            .text_color(t.ink_muted)
+            .child(div().flex_1().min_w_0().truncate().child(text))
+            .child(self.render_footer(t, "footer", cx))
     }
 }
 

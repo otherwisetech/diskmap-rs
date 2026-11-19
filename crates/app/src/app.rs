@@ -80,7 +80,8 @@ pub struct DiskApp {
     pub search_root: Option<NodeId>,
     hits: Rc<Vec<NodeId>>,
     hits_key: Option<(u64, NodeId, String)>,
-    logo: Arc<Image>,
+    pub(crate) logo: Arc<Image>,
+    pub(crate) about_open: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -122,6 +123,7 @@ impl DiskApp {
             search_root: None,
             hits: Rc::new(Vec::new()),
             hits_key: None,
+            about_open: false,
             logo: Arc::new(Image::from_bytes(ImageFormat::Png, crate::ICON_PNG.to_vec())),
             _subs: subs,
         };
@@ -355,6 +357,10 @@ impl DiskApp {
         cx.notify();
     }
 
+    pub(crate) fn focus_main(&self, window: &mut Window, cx: &mut App) {
+        self.focus.focus(window, cx);
+    }
+
     fn search_focused(&self, window: &Window, cx: &App) -> bool {
         self.search.read(cx).focus_handle(cx).is_focused(window)
     }
@@ -497,7 +503,10 @@ impl DiskApp {
                     w.update(cx, |this, cx| this.set_language(code, cx)).ok();
                 }));
             }
-            menu.separator().item(PopupMenuItem::new(i18n::t!("app.credit.by", company = crate::COMPANY)).on_click(|_, _, cx| cx.open_url(crate::COMPANY_URL)))
+            let w = weak.clone();
+            menu.separator().item(PopupMenuItem::new(i18n::t!("app.credit.by", company = crate::COMPANY)).on_click(move |_, window, cx| {
+                w.update(cx, |this, cx| this.show_about(window, cx)).ok();
+            }))
         });
         div()
             .flex()
@@ -558,7 +567,6 @@ impl DiskApp {
             )
             .child(ui::filled_button(t, "choose", t.accent).child(icon(IconName::FolderOpen, 15., t.on_fill())).child(i18n::t!("app.start.choose")).on_click(cx.listener(|this, _, window, cx| this.open_dialog(window, cx))))
             .when(cfg!(target_os = "macos"), |d| d.child(div().max_w(px(460.)).text_center().text_size(px(12.)).text_color(t.ink_muted).child(i18n::t!("app.start.mac_hint"))))
-            .child(div().absolute().bottom(px(18.)).left_0().right_0().flex().justify_center().child(ui::credit(t)))
     }
 
     fn render_scanning(&self, t: &Tokens, root: &Path, p: &Progress, started: Instant, cx: &mut Context<Self>) -> impl IntoElement {
@@ -643,49 +651,56 @@ impl Render for DiskApp {
             }
             Phase::Ready => div().flex().size_full().min_h_0().child(self.render_treemap(window, cx)).child(self.render_panel(&t, cx)).into_any_element(),
         };
+        let ready = matches!(self.phase, Phase::Ready);
+        let about = self.about_open;
         div()
             .key_context(CONTEXT)
             .track_focus(&self.focus)
-            .on_action(cx.listener(|this, _: &OpenFolder, window, cx| this.open_dialog(window, cx)))
-            .on_action(cx.listener(|this, _: &Rescan, window, cx| this.rescan(window, cx)))
-            .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.zoom_out(cx)))
-            .on_action(cx.listener(|this, _: &ZoomIn, window, cx| {
-                if this.search_focused(window, cx) {
-                    this.apply_query(cx);
-                    if let Some(&first) = this.search_hits().first() {
-                        this.select_hit(first, cx);
-                    }
-                } else if let Some(s) = this.selected {
-                    this.zoom_into(s, cx);
-                }
-            }))
             .on_action(cx.listener(|this, _: &ClearSelection, window, cx| {
-                if !this.query.is_empty() || this.search_focused(window, cx) {
+                if this.about_open {
+                    this.close_about(cx);
+                } else if !this.query.is_empty() || this.search_focused(window, cx) {
                     this.clear_search(window, cx);
                 } else {
                     this.select(None, cx);
                 }
             }))
-            .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
-                if matches!(this.phase, Phase::Ready) {
-                    this.search.update(cx, |s, cx| s.focus(window, cx));
-                }
-            }))
-            .on_action(cx.listener(|this, _: &Reveal, _, cx| {
-                let id = this.target();
-                this.reveal(id, cx);
-            }))
-            .on_action(cx.listener(|this, _: &CopyPath, _, cx| {
-                if matches!(this.phase, Phase::Ready) {
+            // the modal swallows every other shortcut, e.g. ⌘⌫ must not trash what sits behind it
+            .when(!about, |d| {
+                d.on_action(cx.listener(|this, _: &OpenFolder, window, cx| this.open_dialog(window, cx)))
+                .on_action(cx.listener(|this, _: &Rescan, window, cx| this.rescan(window, cx)))
+                .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.zoom_out(cx)))
+                .on_action(cx.listener(|this, _: &ZoomIn, window, cx| {
+                    if this.search_focused(window, cx) {
+                        this.apply_query(cx);
+                        if let Some(&first) = this.search_hits().first() {
+                            this.select_hit(first, cx);
+                        }
+                    } else if let Some(s) = this.selected {
+                        this.zoom_into(s, cx);
+                    }
+                }))
+                .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
+                    if matches!(this.phase, Phase::Ready) {
+                        this.search.update(cx, |s, cx| s.focus(window, cx));
+                    }
+                }))
+                .on_action(cx.listener(|this, _: &Reveal, _, cx| {
                     let id = this.target();
-                    this.copy_path(id, cx);
-                }
-            }))
-            .on_action(cx.listener(|this, _: &MoveToTrash, window, cx| {
-                if let Some(s) = this.selected {
-                    this.move_to_trash(s, window, cx);
-                }
-            }))
+                    this.reveal(id, cx);
+                }))
+                .on_action(cx.listener(|this, _: &CopyPath, _, cx| {
+                    if matches!(this.phase, Phase::Ready) {
+                        let id = this.target();
+                        this.copy_path(id, cx);
+                    }
+                }))
+                .on_action(cx.listener(|this, _: &MoveToTrash, window, cx| {
+                    if let Some(s) = this.selected {
+                        this.move_to_trash(s, window, cx);
+                    }
+                }))
+            })
             .relative()
             .flex()
             .flex_col()
@@ -694,8 +709,9 @@ impl Render for DiskApp {
             .text_color(t.ink)
             .font_family(SANS)
             .child(self.render_topbar(&t, cx))
-            .child(div().flex_1().min_h_0().child(body))
+            .child(div().relative().flex_1().min_h_0().child(body).when(!ready, |d| d.child(div().absolute().bottom(px(18.)).left_0().right_0().flex().justify_center().child(self.render_footer(&t, "footer", cx)))))
             .children(self.render_toast(&t))
+            .when(about, |d| d.child(self.render_about(&t, cx)))
     }
 }
 
