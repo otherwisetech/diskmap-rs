@@ -1479,6 +1479,7 @@ name = "diskmap-app"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "async-channel",
  "diskmap-i18n",
  "diskmap-scan",
  "gpui",
@@ -1487,6 +1488,7 @@ dependencies = [
  "gpui_platform",
  "objc",
  "trash",
+ "winreg",
  "winresource",
 ]
 
