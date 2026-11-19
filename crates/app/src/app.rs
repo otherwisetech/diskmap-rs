@@ -385,7 +385,7 @@ impl DiskApp {
                     w.update(cx, |this, cx| this.set_language(code, cx)).ok();
                 }));
             }
-            menu
+            menu.separator().item(PopupMenuItem::new(i18n::t!("app.credit.by", company = crate::COMPANY)).on_click(|_, _, cx| cx.open_url(crate::COMPANY_URL)))
         });
         div()
             .flex()
@@ -423,6 +423,7 @@ impl DiskApp {
             })
         };
         div()
+            .relative()
             .flex()
             .flex_col()
             .items_center()
@@ -444,6 +445,7 @@ impl DiskApp {
             )
             .child(ui::filled_button(t, "choose", t.accent).child(icon(IconName::FolderOpen, 15., t.on_fill())).child(i18n::t!("app.start.choose")).on_click(cx.listener(|this, _, window, cx| this.open_dialog(window, cx))))
             .when(cfg!(target_os = "macos"), |d| d.child(div().max_w(px(460.)).text_center().text_size(px(12.)).text_color(t.ink_muted).child(i18n::t!("app.start.mac_hint"))))
+            .child(div().absolute().bottom(px(18.)).left_0().right_0().flex().justify_center().child(ui::credit(t)))
     }
 
     fn render_scanning(&self, t: &Tokens, root: &Path, p: &Progress, started: Instant, cx: &mut Context<Self>) -> impl IntoElement {

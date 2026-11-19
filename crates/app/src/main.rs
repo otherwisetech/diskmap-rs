@@ -14,13 +14,16 @@ use gpui_component_assets::Assets;
 use std::borrow::Cow;
 use std::path::PathBuf;
 
-actions!(diskmap, [Quit]);
+actions!(diskmap, [Quit, OpenWebsite]);
 
 pub(crate) const APP_NAME: &str = "diskmap"; // i18n-ok: product name
+pub(crate) const COMPANY: &str = "Otherwise Technologies LLC"; // i18n-ok: company name
+pub(crate) const COMPANY_URL: &str = "https://otherwisetech.com";
 
 /// The native menu bar holds plain strings, so it is rebuilt on every language switch.
 pub(crate) fn set_app_menus(cx: &mut App) {
-    cx.set_menus(vec![Menu { name: APP_NAME.into(), items: vec![MenuItem::action(i18n::t!("app.menu.quit"), Quit)], disabled: false }]);
+    let items = vec![MenuItem::action(i18n::t!("app.credit.menu", company = COMPANY), OpenWebsite), MenuItem::separator(), MenuItem::action(i18n::t!("app.menu.quit"), Quit)];
+    cx.set_menus(vec![Menu { name: APP_NAME.into(), items, disabled: false }]);
 }
 
 /// gpui-component's icon set plus our own `icons/*.svg`.
@@ -88,6 +91,7 @@ fn main() {
         app::bind_keys(cx);
         cx.bind_keys([KeyBinding::new("secondary-q", Quit, None)]);
         cx.on_action(|_: &Quit, cx| cx.quit());
+        cx.on_action(|_: &OpenWebsite, cx| cx.open_url(COMPANY_URL));
         gpui_component::set_locale(i18n::locale());
         set_app_menus(cx);
         cx.on_window_closed(|cx, _| cx.quit()).detach();

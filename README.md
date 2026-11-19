@@ -57,3 +57,5 @@ crates/app    `diskmap` desktop app
 ## License
 
 MIT or Apache-2.0, at your option.
+
+Developed by [Otherwise Technologies LLC](https://otherwisetech.com), Wyoming, USA.

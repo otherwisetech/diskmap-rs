@@ -44,3 +44,5 @@ app.trash.detail_dir.other = Contém {n} arquivos ({size}). Você pode recuperá
 app.trash.confirm_button = Mover para o lixo
 app.trash.done = «{name}» está no lixo ({size}). Esvazie-o para liberar o espaço.
 app.trash.failed = Não foi possível mover para o lixo: {detail}
+app.credit.by = Desenvolvido por {company} · Wyoming, EUA
+app.credit.menu = Site da {company}

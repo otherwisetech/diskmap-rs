@@ -72,3 +72,16 @@ pub fn section_title(t: &Tokens, text: impl Into<SharedString>) -> Div {
 pub fn swatch(color: Hsla, size: f32) -> Div {
     div().flex_none().size(px(size)).rounded(px(3.)).bg(color)
 }
+
+/// "Developed by Otherwise Technologies LLC · Wyoming, USA", opening the company site.
+pub fn credit(t: &Tokens) -> Stateful<Div> {
+    let ink = t.ink;
+    div()
+        .id("credit")
+        .text_size(px(12.))
+        .text_color(t.ink_muted)
+        .cursor_pointer()
+        .hover(move |s| s.text_color(ink).underline())
+        .child(i18n::t!("app.credit.by", company = crate::COMPANY))
+        .on_click(|_, _, cx| cx.open_url(crate::COMPANY_URL))
+}

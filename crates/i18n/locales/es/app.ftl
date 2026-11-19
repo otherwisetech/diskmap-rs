@@ -44,3 +44,5 @@ app.trash.detail_dir.other = Contiene {n} archivos ({size}). Podrás recuperarlo
 app.trash.confirm_button = Mover a la papelera
 app.trash.done = «{name}» está en la papelera ({size}). Vacíala para liberar el espacio.
 app.trash.failed = No se pudo mover a la papelera: {detail}
+app.credit.by = Desarrollado por {company} · Wyoming, EE. UU.
+app.credit.menu = Sitio web de {company}

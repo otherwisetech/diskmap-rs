@@ -44,3 +44,5 @@ app.trash.detail_dir.other = Holds {n} files ({size}). You can restore them from
 app.trash.confirm_button = Move to Trash
 app.trash.done = “{name}” is in the Trash ({size}). Empty it to free the space.
 app.trash.failed = Could not move to the Trash: {detail}
+app.credit.by = Developed by {company} · Wyoming, USA
+app.credit.menu = {company} website
