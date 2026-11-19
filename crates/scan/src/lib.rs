@@ -3,6 +3,7 @@
 //! - [`walk::scan`] walks a directory in parallel into a [`Tree`] (children sorted by size).
 //! - [`treemap::layout`] turns a subtree into nested squarified [`treemap::Tile`]s.
 pub mod kind;
+pub mod search;
 pub mod treemap;
 pub mod tree;
 pub mod walk;
