@@ -44,3 +44,5 @@ app.trash.detail_dir.other = Contient {n} fichiers ({size}). Vous pourrez les r�
 app.trash.confirm_button = Mettre à la corbeille
 app.trash.done = « {name} » est dans la corbeille ({size}). Videz-la pour libérer l'espace.
 app.trash.failed = Impossible de mettre à la corbeille : {detail}
+app.credit.by = Développé par {company} · Wyoming, États-Unis
+app.credit.menu = Site de {company}
