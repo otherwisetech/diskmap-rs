@@ -160,3 +160,28 @@ fn nested_layout_and_hit_test() {
     // the empty directory has no allocated size worth a tile, or is a leaf
     assert!(tiles.iter().all(|x| !x.nested || !t.node(x.node).children.is_empty()));
 }
+
+#[test]
+fn search_by_name() {
+    let d = sample();
+    let r = d.path();
+    write(&r.join("docs/Café.TXT"), 40_000);
+    write(&r.join("docs/cafe\u{301} viejo.txt"), 20_000);
+    write(&r.join("big/inner/CAFETERIA"), 5_000);
+    let mut t = scan(r, &Options::default(), &Progress::default()).unwrap();
+    let names = |ids: Vec<u32>| ids.into_iter().map(|i| t.node(i).name.to_string()).collect::<Vec<_>>();
+    // case- and accent-insensitive both ways, composed or decomposed, largest first
+    assert_eq!(names(t.search(Tree::ROOT, "cafe", 10)), ["Café.TXT", "cafe\u{301} viejo.txt", "CAFETERIA"]);
+    assert_eq!(names(t.search(Tree::ROOT, "  CAFÉ ", 10)), ["Café.TXT", "cafe\u{301} viejo.txt", "CAFETERIA"]);
+    assert_eq!(names(t.search(Tree::ROOT, "cafe", 2)), ["Café.TXT", "cafe\u{301} viejo.txt"]);
+    // folders match too; only below `under`, never `under` itself
+    assert_eq!(names(t.search(Tree::ROOT, "inner", 10)), ["inner"]);
+    let big = find(&t, "big");
+    assert_eq!(names(t.search(big, "cafe", 10)), ["CAFETERIA"]);
+    assert!(t.search(big, "big", 10).is_empty());
+    assert!(t.search(Tree::ROOT, "   ", 10).is_empty());
+    assert!(t.search(Tree::ROOT, "zzz", 10).is_empty());
+    // removed subtrees disappear from results
+    t.remove(find(&t, "docs"));
+    assert_eq!(t.search(Tree::ROOT, "cafe", 10), vec![find(&t, "CAFETERIA")]);
+}

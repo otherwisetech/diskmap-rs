@@ -27,6 +27,7 @@ impl DiskApp {
     pub(crate) fn render_treemap(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = tokens(cx);
         self.ensure_tiles();
+        let hits = self.search_hits();
         let Some(tree) = &self.tree else { return div().into_any_element() };
         let tiles = self.tiles.clone();
 
@@ -43,9 +44,11 @@ impl DiskApp {
         let rect_of = |id| tiles.iter().find(|x| x.node == id).map(|x| x.rect);
         let hover_rect = self.hovered.and_then(rect_of);
         let sel_rect = self.selected.and_then(rect_of);
+        let hit_set: std::collections::HashSet<_> = hits.iter().copied().collect();
+        let hit_rects: Vec<Rect> = if hit_set.is_empty() { Vec::new() } else { tiles.iter().filter(|x| hit_set.contains(&x.node)).map(|x| x.rect).collect() };
 
         let bounds_cell = self.canvas_bounds.clone();
-        let (hover_c, sel_c, frame) = (t.ink.opacity(0.85), t.accent, t.canvas);
+        let (hover_c, sel_c, frame, hit_c) = (t.ink.opacity(0.85), t.accent, t.canvas, t.accent.opacity(0.8));
         let paint = canvas(
             move |b, window, _| {
                 if bounds_cell.get() != b {
@@ -57,6 +60,9 @@ impl DiskApp {
                 window.paint_quad(fill(b, frame));
                 for (r, c) in &quads {
                     window.paint_quad(fill(to_bounds(b, *r), *c));
+                }
+                for r in &hit_rects {
+                    window.paint_quad(quad(to_bounds(b, inset(*r, 0.5)), px(1.), transparent_black(), px(1.5), hit_c, BorderStyle::Dashed));
                 }
                 if let Some(r) = hover_rect {
                     window.paint_quad(quad(to_bounds(b, r), px(0.), transparent_black(), px(1.5), hover_c, BorderStyle::Solid));
@@ -78,7 +84,7 @@ impl DiskApp {
         cand.truncate(MAX_LABELS);
         let labels: Vec<AnyElement> = cand.into_iter().map(|i| label(&t, tree, &tiles[i])).collect();
 
-        let status = self.render_status(&t);
+        let status = self.render_status(&t, cx).into_any_element();
         div()
             .flex()
             .flex_col()
@@ -116,6 +122,14 @@ impl DiskApp {
                                 (h, _) => this.select(h, cx),
                             }
                         }),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(|this, e: &MouseDownEvent, _, cx| {
+                            if let Some(id) = this.hit(e.position) {
+                                this.select_and_copy(id, cx);
+                            }
+                        }),
                     ),
             )
             .child(status)
@@ -131,16 +145,26 @@ impl DiskApp {
         hit(&self.tiles, x, y).map(|t| t.node)
     }
 
-    fn render_status(&self, t: &Tokens) -> impl IntoElement {
+    fn render_status(&self, t: &Tokens, cx: &mut Context<Self>) -> impl IntoElement {
         let text = match (&self.tree, self.hovered) {
             (Some(tree), Some(id)) => {
                 let n = tree.node(id);
                 let pct = pct(n.size, tree.node(self.zoom).size);
                 format!("{}  ·  {}  ·  {}", tree.path(id).display(), human(n.size), i18n::t!("app.panel.share", pct = pct))
             }
-            _ => i18n::t!("app.status.hint"),
+            _ => i18n::t!("app.status.hint", copy = crate::app::COPY_KEYS),
         };
-        div().flex_none().h(px(26.)).px(px(12.)).flex().items_center().text_size(px(12.)).text_color(t.ink_muted).truncate().child(text)
+        div()
+            .flex_none()
+            .h(px(26.))
+            .px(px(12.))
+            .flex()
+            .items_center()
+            .gap(px(16.))
+            .text_size(px(12.))
+            .text_color(t.ink_muted)
+            .child(div().flex_1().min_w_0().truncate().child(text))
+            .child(self.render_footer(t, "footer", cx))
     }
 }
 

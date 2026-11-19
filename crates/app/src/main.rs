@@ -1,6 +1,7 @@
 // No console window behind the app on Windows release builds.
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
+mod about;
 mod app;
 mod panel;
 mod settings;
@@ -14,16 +15,37 @@ use gpui_component_assets::Assets;
 use std::borrow::Cow;
 use std::path::PathBuf;
 
-actions!(diskmap, [Quit, OpenWebsite]);
+actions!(diskmap, [Quit, OpenWebsite, ShowAbout]);
 
 pub(crate) const APP_NAME: &str = "diskmap"; // i18n-ok: product name
 pub(crate) const COMPANY: &str = "Otherwise Technologies LLC"; // i18n-ok: company name
 pub(crate) const COMPANY_URL: &str = "https://otherwisetech.com";
+pub(crate) const REPO_URL: &str = env!("CARGO_PKG_REPOSITORY");
+pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The native menu bar holds plain strings, so it is rebuilt on every language switch.
 pub(crate) fn set_app_menus(cx: &mut App) {
-    let items = vec![MenuItem::action(i18n::t!("app.credit.menu", company = COMPANY), OpenWebsite), MenuItem::separator(), MenuItem::action(i18n::t!("app.menu.quit"), Quit)];
+    let items = vec![
+        MenuItem::action(i18n::t!("app.about.menu", app = APP_NAME), ShowAbout),
+        MenuItem::separator(),
+        MenuItem::action(i18n::t!("app.credit.menu", company = COMPANY), OpenWebsite),
+        MenuItem::separator(),
+        MenuItem::action(i18n::t!("app.menu.quit"), Quit),
+    ];
     cx.set_menus(vec![Menu { name: APP_NAME.into(), items, disabled: false }]);
+}
+
+/// Handled at app level so the menu item works wherever focus is.
+fn show_about(_: &ShowAbout, cx: &mut App) {
+    for handle in cx.windows() {
+        let Some(root) = handle.downcast::<Root>() else { continue };
+        root.update(cx, |root, window, cx| {
+            if let Ok(view) = root.view().clone().downcast::<app::DiskApp>() {
+                view.update(cx, |this, cx| this.show_about(window, cx));
+            }
+        })
+        .ok();
+    }
 }
 
 /// gpui-component's icon set plus our own `icons/*.svg`.
@@ -92,6 +114,7 @@ fn main() {
         cx.bind_keys([KeyBinding::new("secondary-q", Quit, None)]);
         cx.on_action(|_: &Quit, cx| cx.quit());
         cx.on_action(|_: &OpenWebsite, cx| cx.open_url(COMPANY_URL));
+        cx.on_action(show_about);
         gpui_component::set_locale(i18n::locale());
         set_app_menus(cx);
         cx.on_window_closed(|cx, _| cx.quit()).detach();

@@ -4,6 +4,7 @@ use crate::ui::{self, icon};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::{IconName, Sizable as _, Theme};
 use scan::treemap::Tile;
@@ -17,8 +18,13 @@ use std::time::{Duration, Instant};
 
 pub(crate) const CONTEXT: &str = "DiskApp";
 const TOAST_FOR: Duration = Duration::from_secs(4);
+const SEARCH_DEBOUNCE: Duration = Duration::from_millis(150);
+pub(crate) const SEARCH_LIMIT: usize = 500;
+/// Shortcut label shown in the status hint for [`CopyPath`].
+pub(crate) const COPY_KEYS: &str = if cfg!(target_os = "macos") { "⌘C" } else { "Ctrl+C" }; // i18n-ok
+const SEARCH_KEYS: &str = if cfg!(target_os = "macos") { "⌘F" } else { "Ctrl+F" }; // i18n-ok
 
-actions!(diskmap, [OpenFolder, Rescan, ZoomOut, ZoomIn, ClearSelection, Reveal, MoveToTrash]);
+actions!(diskmap, [OpenFolder, Rescan, ZoomOut, ZoomIn, ClearSelection, Reveal, MoveToTrash, CopyPath, FocusSearch]);
 
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
@@ -29,6 +35,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", ClearSelection, Some(CONTEXT)),
         KeyBinding::new("secondary-shift-r", Reveal, Some(CONTEXT)),
         KeyBinding::new("secondary-backspace", MoveToTrash, Some(CONTEXT)),
+        KeyBinding::new("secondary-c", CopyPath, Some(CONTEXT)),
+        KeyBinding::new("secondary-f", FocusSearch, Some(CONTEXT)),
     ]);
 }
 
@@ -63,14 +71,32 @@ pub struct DiskApp {
     pub list_scroll: UniformListScrollHandle,
     focus: FocusHandle,
     toast: Option<(String, Instant)>,
-    logo: Arc<Image>,
+    search: Entity<InputState>,
+    search_gen: u64,
+    placeholder_locale: &'static str,
+    /// Applied (debounced, trimmed) query; empty when not searching.
+    pub query: String,
+    /// Folder in view when the search started; results stay scoped to it while browsing them.
+    pub search_root: Option<NodeId>,
+    hits: Rc<Vec<NodeId>>,
+    hits_key: Option<(u64, NodeId, String)>,
+    pub(crate) logo: Arc<Image>,
+    pub(crate) about_open: bool,
     _subs: Vec<Subscription>,
 }
 
 impl DiskApp {
     pub fn new(initial: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         sync_theme(Some(window), cx);
-        let subs = vec![window.observe_window_appearance(|window, cx| sync_theme(Some(window), cx))];
+        let search = cx.new(|cx| InputState::new(window, cx));
+        let subs = vec![
+            window.observe_window_appearance(|window, cx| sync_theme(Some(window), cx)),
+            cx.subscribe_in(&search, window, |this, _, ev: &InputEvent, _, cx| {
+                if matches!(ev, InputEvent::Change) {
+                    this.query_changed(cx);
+                }
+            }),
+        ];
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let mut this = DiskApp {
@@ -90,6 +116,14 @@ impl DiskApp {
             list_scroll: UniformListScrollHandle::new(),
             focus,
             toast: None,
+            search,
+            search_gen: 0,
+            placeholder_locale: "",
+            query: String::new(),
+            search_root: None,
+            hits: Rc::new(Vec::new()),
+            hits_key: None,
+            about_open: false,
             logo: Arc::new(Image::from_bytes(ImageFormat::Png, crate::ICON_PNG.to_vec())),
             _subs: subs,
         };
@@ -145,6 +179,7 @@ impl DiskApp {
                 self.zoom = Tree::ROOT;
                 self.selected = None;
                 self.hovered = None;
+                self.search_root = self.search_root.map(|_| Tree::ROOT);
                 self.phase = Phase::Ready;
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
@@ -271,6 +306,86 @@ impl DiskApp {
         }
     }
 
+    pub fn copy_path(&mut self, id: NodeId, cx: &mut Context<Self>) {
+        let Some(t) = &self.tree else { return };
+        let path = t.path(id).display().to_string();
+        cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
+        self.toast(i18n::t!("app.copied", path = path), cx);
+    }
+
+    /// Right click on a tile or row: select it and copy its path.
+    pub fn select_and_copy(&mut self, id: NodeId, cx: &mut Context<Self>) {
+        self.select(Some(id), cx);
+        self.copy_path(id, cx);
+    }
+
+    // ── search ────────────────────────────────────────────────────────────────────────────────
+
+    fn query_changed(&mut self, cx: &mut Context<Self>) {
+        self.search_gen += 1;
+        let search_gen = self.search_gen;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SEARCH_DEBOUNCE).await;
+            this.update(cx, |this, cx| {
+                if this.search_gen == search_gen {
+                    this.apply_query(cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn apply_query(&mut self, cx: &mut Context<Self>) {
+        let q = self.search.read(cx).value().trim().to_string();
+        if q.is_empty() {
+            self.search_root = None;
+        } else if self.search_root.is_none() {
+            self.search_root = Some(self.zoom);
+        }
+        self.query = q;
+        self.list_scroll.scroll_to_item(0, ScrollStrategy::Top);
+        cx.notify();
+    }
+
+    fn clear_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.search_gen += 1;
+        self.search.update(cx, |s, cx| s.set_value("", window, cx));
+        self.query.clear();
+        self.search_root = None;
+        self.focus.focus(window, cx);
+        cx.notify();
+    }
+
+    pub(crate) fn focus_main(&self, window: &mut Window, cx: &mut App) {
+        self.focus.focus(window, cx);
+    }
+
+    fn search_focused(&self, window: &Window, cx: &App) -> bool {
+        self.search.read(cx).focus_handle(cx).is_focused(window)
+    }
+
+    /// Matches under the search root, largest first; empty when not searching.
+    pub fn search_hits(&mut self) -> Rc<Vec<NodeId>> {
+        let (Some(tree), Some(root)) = (&self.tree, self.search_root) else { return Rc::new(Vec::new()) };
+        if self.query.is_empty() {
+            return Rc::new(Vec::new());
+        }
+        if self.hits_key.as_ref().is_none_or(|(rev, r, q)| *rev != self.rev || *r != root || *q != self.query) {
+            self.hits = Rc::new(tree.search(root, &self.query, SEARCH_LIMIT));
+            self.hits_key = Some((self.rev, root, self.query.clone()));
+        }
+        self.hits.clone()
+    }
+
+    /// Show a result in the treemap: zoom to its folder and select it.
+    pub fn select_hit(&mut self, id: NodeId, cx: &mut Context<Self>) {
+        let Some(parent) = self.tree.as_ref().and_then(|t| t.node(id).parent) else { return };
+        self.zoom_to(parent, cx);
+        self.selected = Some(id);
+        cx.notify();
+    }
+
     pub fn largest_files(&mut self) -> Rc<Vec<NodeId>> {
         let key = (self.rev, self.zoom);
         if self.largest_key != Some(key)
@@ -322,6 +437,9 @@ impl DiskApp {
         }
         if self.selected.is_some_and(|s| tree.is_ancestor(id, s)) {
             self.selected = None;
+        }
+        if self.search_root.is_some_and(|r| tree.is_ancestor(id, r)) {
+            self.search_root = Some(parent);
         }
         tree.remove(id);
         self.hovered = None;
@@ -385,7 +503,10 @@ impl DiskApp {
                     w.update(cx, |this, cx| this.set_language(code, cx)).ok();
                 }));
             }
-            menu.separator().item(PopupMenuItem::new(i18n::t!("app.credit.by", company = crate::COMPANY)).on_click(|_, _, cx| cx.open_url(crate::COMPANY_URL)))
+            let w = weak.clone();
+            menu.separator().item(PopupMenuItem::new(i18n::t!("app.credit.by", company = crate::COMPANY)).on_click(move |_, window, cx| {
+                w.update(cx, |this, cx| this.show_about(window, cx)).ok();
+            }))
         });
         div()
             .flex()
@@ -401,6 +522,7 @@ impl DiskApp {
             .child(ui::icon_button(t, "up", IconName::ArrowUp, can_up).when(can_up, |d| d.on_click(cx.listener(|this, _, _, cx| this.zoom_out(cx)))))
             .child(crumbs)
             .children(total)
+            .when(matches!(self.phase, Phase::Ready), |d| d.child(Input::new(&self.search).prefix(icon(IconName::Search, 14., t.ink_muted)).cleanable(true).w(px(220.)).flex_none()))
             .child(ui::icon_button(t, "rescan", IconName::Redo, can_rescan).when(can_rescan, |d| d.on_click(cx.listener(|this, _, window, cx| this.rescan(window, cx)))))
             .child(ui::outline_button(t, "open").child(icon(IconName::FolderOpen, 15., t.ink)).child(i18n::t!("app.topbar.open")).on_click(cx.listener(|this, _, window, cx| this.open_dialog(window, cx))))
             .child(lang)
@@ -445,7 +567,6 @@ impl DiskApp {
             )
             .child(ui::filled_button(t, "choose", t.accent).child(icon(IconName::FolderOpen, 15., t.on_fill())).child(i18n::t!("app.start.choose")).on_click(cx.listener(|this, _, window, cx| this.open_dialog(window, cx))))
             .when(cfg!(target_os = "macos"), |d| d.child(div().max_w(px(460.)).text_center().text_size(px(12.)).text_color(t.ink_muted).child(i18n::t!("app.start.mac_hint"))))
-            .child(div().absolute().bottom(px(18.)).left_0().right_0().flex().justify_center().child(ui::credit(t)))
     }
 
     fn render_scanning(&self, t: &Tokens, root: &Path, p: &Progress, started: Instant, cx: &mut Context<Self>) -> impl IntoElement {
@@ -513,6 +634,11 @@ impl DiskApp {
 impl Render for DiskApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = tokens(cx);
+        if self.placeholder_locale != i18n::locale() {
+            self.placeholder_locale = i18n::locale();
+            let text = i18n::t!("app.search.placeholder", keys = SEARCH_KEYS);
+            self.search.update(cx, |s, cx| s.set_placeholder(text, window, cx));
+        }
         let body: AnyElement = match &self.phase {
             Phase::Start => self.render_start(&t, cx).into_any_element(),
             Phase::Scanning { root, progress, started } => {
@@ -525,27 +651,56 @@ impl Render for DiskApp {
             }
             Phase::Ready => div().flex().size_full().min_h_0().child(self.render_treemap(window, cx)).child(self.render_panel(&t, cx)).into_any_element(),
         };
+        let ready = matches!(self.phase, Phase::Ready);
+        let about = self.about_open;
         div()
             .key_context(CONTEXT)
             .track_focus(&self.focus)
-            .on_action(cx.listener(|this, _: &OpenFolder, window, cx| this.open_dialog(window, cx)))
-            .on_action(cx.listener(|this, _: &Rescan, window, cx| this.rescan(window, cx)))
-            .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.zoom_out(cx)))
-            .on_action(cx.listener(|this, _: &ZoomIn, _, cx| {
-                if let Some(s) = this.selected {
-                    this.zoom_into(s, cx);
+            .on_action(cx.listener(|this, _: &ClearSelection, window, cx| {
+                if this.about_open {
+                    this.close_about(cx);
+                } else if !this.query.is_empty() || this.search_focused(window, cx) {
+                    this.clear_search(window, cx);
+                } else {
+                    this.select(None, cx);
                 }
             }))
-            .on_action(cx.listener(|this, _: &ClearSelection, _, cx| this.select(None, cx)))
-            .on_action(cx.listener(|this, _: &Reveal, _, cx| {
-                let id = this.target();
-                this.reveal(id, cx);
-            }))
-            .on_action(cx.listener(|this, _: &MoveToTrash, window, cx| {
-                if let Some(s) = this.selected {
-                    this.move_to_trash(s, window, cx);
-                }
-            }))
+            // the modal swallows every other shortcut, e.g. ⌘⌫ must not trash what sits behind it
+            .when(!about, |d| {
+                d.on_action(cx.listener(|this, _: &OpenFolder, window, cx| this.open_dialog(window, cx)))
+                .on_action(cx.listener(|this, _: &Rescan, window, cx| this.rescan(window, cx)))
+                .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.zoom_out(cx)))
+                .on_action(cx.listener(|this, _: &ZoomIn, window, cx| {
+                    if this.search_focused(window, cx) {
+                        this.apply_query(cx);
+                        if let Some(&first) = this.search_hits().first() {
+                            this.select_hit(first, cx);
+                        }
+                    } else if let Some(s) = this.selected {
+                        this.zoom_into(s, cx);
+                    }
+                }))
+                .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
+                    if matches!(this.phase, Phase::Ready) {
+                        this.search.update(cx, |s, cx| s.focus(window, cx));
+                    }
+                }))
+                .on_action(cx.listener(|this, _: &Reveal, _, cx| {
+                    let id = this.target();
+                    this.reveal(id, cx);
+                }))
+                .on_action(cx.listener(|this, _: &CopyPath, _, cx| {
+                    if matches!(this.phase, Phase::Ready) {
+                        let id = this.target();
+                        this.copy_path(id, cx);
+                    }
+                }))
+                .on_action(cx.listener(|this, _: &MoveToTrash, window, cx| {
+                    if let Some(s) = this.selected {
+                        this.move_to_trash(s, window, cx);
+                    }
+                }))
+            })
             .relative()
             .flex()
             .flex_col()
@@ -554,8 +709,9 @@ impl Render for DiskApp {
             .text_color(t.ink)
             .font_family(SANS)
             .child(self.render_topbar(&t, cx))
-            .child(div().flex_1().min_h_0().child(body))
+            .child(div().relative().flex_1().min_h_0().child(body).when(!ready, |d| d.child(div().absolute().bottom(px(18.)).left_0().right_0().flex().justify_center().child(self.render_footer(&t, "footer", cx)))))
             .children(self.render_toast(&t))
+            .when(about, |d| d.child(self.render_about(&t, cx)))
     }
 }
 

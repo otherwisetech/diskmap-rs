@@ -10,6 +10,7 @@ use scan::{Kind, NodeId, Tree, human};
 
 const PANEL_W: f32 = 340.;
 const ROW_H: f32 = 30.;
+const HIT_H: f32 = 40.;
 
 fn kind_name(k: Kind) -> String {
     i18n::t!(&format!("app.kind.{}", k.id()))
@@ -18,6 +19,7 @@ fn kind_name(k: Kind) -> String {
 impl DiskApp {
     pub(crate) fn render_panel(&mut self, t: &Tokens, cx: &mut Context<Self>) -> impl IntoElement {
         let largest = self.largest_files();
+        let hits = self.search_hits();
         let Some(tree) = &self.tree else { return div().into_any_element() };
         let id = self.target();
         let n = tree.node(id);
@@ -56,7 +58,18 @@ impl DiskApp {
             )
             .child(div().flex().items_baseline().gap(px(8.)).child(div().text_size(px(24.)).font_weight(FontWeight::SEMIBOLD).child(human(n.size))).child(div().text_size(px(12.)).text_color(t.ink_muted).child(kind_name(n.kind))))
             .child(facts)
-            .child(div().text_size(px(11.)).text_color(t.ink_muted).truncate().child(tree.path(id).display().to_string()))
+            .child({
+                let ink = t.ink;
+                div()
+                    .id("path")
+                    .text_size(px(11.))
+                    .text_color(t.ink_muted)
+                    .truncate()
+                    .cursor_pointer()
+                    .hover(move |s| s.text_color(ink).underline())
+                    .child(tree.path(id).display().to_string())
+                    .on_click(cx.listener(move |this, _, _, cx| this.copy_path(id, cx)))
+            })
             .when(unreadable, |d| {
                 d.child(
                     div()
@@ -75,6 +88,7 @@ impl DiskApp {
                     .gap(px(6.))
                     .when(can_enter, |d| d.child(ui::outline_button(t, "enter").child(icon(IconName::ArrowRight, 14., t.ink)).child(i18n::t!("app.panel.enter")).on_click(cx.listener(move |this, _, _, cx| this.zoom_into(id, cx)))))
                     .child(ui::outline_button(t, "reveal").child(icon(IconName::ExternalLink, 14., t.ink)).child(i18n::t!("app.panel.reveal")).on_click(cx.listener(move |this, _, _, cx| this.reveal(id, cx))))
+                    .child(ui::outline_button(t, "copy").child(icon(IconName::Copy, 14., t.ink)).child(i18n::t!("app.panel.copy")).on_click(cx.listener(move |this, _, _, cx| this.copy_path(id, cx))))
                     .when(!is_root, |d| {
                         let danger = t.danger;
                         d.child(ui::outline_button(t, "trash").text_color(danger).child(icon(IconName::Delete, 14., danger)).child(i18n::t!("app.panel.trash")).on_click(cx.listener(move |this, _, window, cx| this.move_to_trash(id, window, cx))))
@@ -84,6 +98,31 @@ impl DiskApp {
         let zoom = self.zoom;
         let count = tree.node(zoom).children.len();
         let selected = self.selected;
+        let searching = !self.query.is_empty();
+        let search_root = self.search_root.unwrap_or(zoom);
+        let list_title = if !searching {
+            i18n::t!("app.panel.contents", name = tree.node(zoom).name)
+        } else if hits.len() >= crate::app::SEARCH_LIMIT {
+            i18n::t!("app.search.capped", n = hits.len(), query = self.query)
+        } else {
+            i18n::tn!("app.search.results", hits.len() as u64, query = self.query)
+        };
+        let results = searching.then(|| {
+            let hits = hits.clone();
+            uniform_list(
+                "results",
+                hits.len(),
+                cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
+                    let t = crate::theme::tokens(cx);
+                    let Some(tree) = &this.tree else { return Vec::new() };
+                    let base = tree.path(search_root);
+                    range.filter_map(|ix| hits.get(ix).map(|&c| hit_row(&t, tree, &base, c, selected == Some(c), ix, cx))).collect::<Vec<_>>()
+                }),
+            )
+            .track_scroll(&self.list_scroll)
+            .flex_1()
+            .min_h(px(120.))
+        });
         let contents = uniform_list(
             "contents",
             count,
@@ -113,9 +152,13 @@ impl DiskApp {
             .border_l_1()
             .border_color(t.border)
             .child(header)
-            .child(div().px(px(16.)).pt(px(14.)).pb(px(6.)).child(ui::section_title(t, i18n::t!("app.panel.contents", name = tree.node(zoom).name))))
-            .child(contents)
-            .when(!big.is_empty(), |d| d.child(div().px(px(16.)).pt(px(12.)).pb(px(6.)).border_t_1().border_color(t.border).child(ui::section_title(t, i18n::t!("app.panel.largest")))).child(div().flex().flex_col().pb(px(6.)).children(big)))
+            .child(div().px(px(16.)).pt(px(14.)).pb(px(6.)).child(ui::section_title(t, list_title)))
+            .when(searching && hits.is_empty(), |d| d.child(div().px(px(16.)).py(px(8.)).text_size(px(12.)).text_color(t.ink_muted).child(i18n::t!("app.search.none"))))
+            .map(|d| match results {
+                Some(r) => d.child(r),
+                None => d.child(contents),
+            })
+            .when(!searching && !big.is_empty(), |d| d.child(div().px(px(16.)).pt(px(12.)).pb(px(6.)).border_t_1().border_color(t.border).child(ui::section_title(t, i18n::t!("app.panel.largest")))).child(div().flex().flex_col().pb(px(6.)).children(big)))
             .child(legend)
             .into_any_element()
     }
@@ -149,5 +192,40 @@ fn row(t: &Tokens, tree: &Tree, id: NodeId, max: u64, selected: bool, ix: usize,
         )
         .child(div().flex_none().w(px(64.)).text_right().text_size(px(12.)).text_color(t.ink_muted).child(human(n.size)))
         .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| if e.click_count() >= 2 { this.zoom_into(id, cx) } else { this.select(Some(id), cx) }))
+        .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| this.select_and_copy(id, cx)))
+        .into_any_element()
+}
+
+fn hit_row(t: &Tokens, tree: &Tree, base: &std::path::Path, id: NodeId, selected: bool, ix: usize, cx: &mut Context<DiskApp>) -> AnyElement {
+    let n = tree.node(id);
+    let path = tree.path(id);
+    let rel = path.parent().and_then(|p| p.strip_prefix(base).ok()).map(|p| p.display().to_string()).unwrap_or_default();
+    let hover = t.canvas;
+    div()
+        .id(("hit", ix))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .h(px(HIT_H))
+        .px(px(16.))
+        .cursor_pointer()
+        .when(selected, |d| d.bg(t.accent_soft))
+        .hover(move |s| s.bg(hover))
+        .child(if n.is_dir() { icon(IconName::Folder, 13., t.ink_muted).into_any_element() } else { ui::swatch(t.kind(n.kind), 9.).into_any_element() })
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .child(div().truncate().text_size(px(12.)).child(n.name.to_string()))
+                .when(!rel.is_empty(), |d| d.child(div().truncate().text_size(px(11.)).text_color(t.ink_muted).child(rel))),
+        )
+        .child(div().flex_none().w(px(64.)).text_right().text_size(px(12.)).text_color(t.ink_muted).child(human(n.size)))
+        .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| if e.click_count() >= 2 && this.tree.as_ref().is_some_and(|t| t.node(id).is_dir()) { this.zoom_into(id, cx) } else { this.select_hit(id, cx) }))
+        .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
+            this.select_hit(id, cx);
+            this.copy_path(id, cx);
+        }))
         .into_any_element()
 }
