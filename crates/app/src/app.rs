@@ -567,6 +567,27 @@ impl DiskApp {
             )
             .child(ui::filled_button(t, "choose", t.accent).child(icon(IconName::FolderOpen, 15., t.on_fill())).child(i18n::t!("app.start.choose")).on_click(cx.listener(|this, _, window, cx| this.open_dialog(window, cx))))
             .when(cfg!(target_os = "macos"), |d| d.child(div().max_w(px(460.)).text_center().text_size(px(12.)).text_color(t.ink_muted).child(i18n::t!("app.start.mac_hint"))))
+            .children(self.render_explorer_toggle(t, cx))
+    }
+
+    #[cfg(windows)]
+    fn render_explorer_toggle(&self, t: &Tokens, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let installed = crate::explorer::is_installed();
+        let label = if installed { i18n::t!("app.explorer.remove") } else { i18n::t!("app.explorer.add") };
+        let button = ui::outline_button(t, "explorer-menu").child(icon(IconName::FolderOpen, 14., t.ink_muted)).child(label).on_click(cx.listener(move |this, _, _, cx| {
+            let res = if installed { crate::explorer::uninstall() } else { crate::explorer::install() };
+            match res {
+                Ok(()) => this.toast(if installed { i18n::t!("app.explorer.removed") } else { i18n::t!("app.explorer.added") }, cx),
+                Err(e) => this.toast(i18n::t!("app.explorer.failed", detail = e), cx),
+            }
+            cx.notify();
+        }));
+        Some(button.into_any_element())
+    }
+
+    #[cfg(not(windows))]
+    fn render_explorer_toggle(&self, _: &Tokens, _: &mut Context<Self>) -> Option<AnyElement> {
+        None
     }
 
     fn render_scanning(&self, t: &Tokens, root: &Path, p: &Progress, started: Instant, cx: &mut Context<Self>) -> impl IntoElement {

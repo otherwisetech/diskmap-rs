@@ -36,11 +36,43 @@ The downloads are built by GitHub Actions from the tagged source, but they are *
 or notarized** (that needs paid certificates), which is why macOS and Windows ask for confirmation
 the first time. diskmap makes no network requests.
 
+## Right-click a folder
+
+- **macOS:** right-click a folder (or a disk) in Finder → **Analyze Space with diskmap**
+  (*Analizar espacio con diskmap* in Spanish). It is a macOS Service, so it sits at the bottom of
+  the menu, or under *Quick Actions* / *Services* when there are many. If it does not show up
+  right after installing, open diskmap once or run `/System/Library/CoreServices/pbs -update`;
+  it can be toggled in System Settings → Keyboard → Keyboard Shortcuts → Services → Files and
+  Folders. diskmap is also listed under *Open With* for folders (Finder stays the default), and
+  `open -a diskmap ~/Downloads` scans a folder from the terminal.
+- **Linux:** `diskmap.desktop` declares `MimeType=inode/directory;`, so once it is in
+  `~/.local/share/applications` file managers offer it for folders: Nautilus/Files → right-click
+  → *Open With…* → diskmap; Dolphin → right-click → *Open With* → diskmap. Run
+  `update-desktop-database ~/.local/share/applications` if it does not appear.
+- **Windows:** on diskmap's start screen, click **Add “Analyze Space with diskmap” to Explorer**
+  (the same button removes it). It writes only to your user's registry, no admin rights needed:
+
+  ```reg
+  Windows Registry Editor Version 5.00
+
+  [HKEY_CURRENT_USER\Software\Classes\Directory\shell\diskmap]
+  @="Analyze Space with diskmap"
+  "Icon"="C:\\path\\to\\diskmap.exe"
+
+  [HKEY_CURRENT_USER\Software\Classes\Directory\shell\diskmap\command]
+  @="\"C:\\path\\to\\diskmap.exe\" \"%V\""
+  ```
+
+  plus the same under `Directory\Background\shell\diskmap` (right-click inside a folder) and
+  `Drive\shell\diskmap`. Since the release is a plain zip, keep `diskmap.exe` where it is after
+  adding the entry, or click the button again from its new place. On Windows 11 the entry is under
+  *Show more options*.
+
 ## Build and run
 
 ```sh
 cargo run -p diskmap-app -- ~/Downloads     # or no argument for the start screen
-script/bundle-macos.sh                       # macOS: target/release/diskmap.app with the icon
+script/bundle-macos.sh                       # macOS: target/release/diskmap.app (icon, Finder service)
 cargo run --release -p diskmap-scan --example du -- ~   # scanner only, prints top entries
 ```
 

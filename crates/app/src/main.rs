@@ -3,7 +3,12 @@
 
 mod about;
 mod app;
+#[cfg(windows)]
+mod explorer;
+mod inbox;
 mod panel;
+#[cfg(target_os = "macos")]
+mod services;
 mod settings;
 mod theme;
 mod treemap;
@@ -101,13 +106,20 @@ fn main() {
         println!("{}", i18n::t!("app.cli.usage"));
         return;
     }
+    #[cfg(windows)]
+    let arg = arg.map(inbox::normalize_arg);
     let initial: Option<PathBuf> = arg.map(PathBuf::from);
-    gpui_platform::application().with_assets(AppAssets).run(move |cx| {
+    let application = gpui_platform::application().with_assets(AppAssets);
+    application.on_open_urls(inbox::send_urls);
+    application.run(move |cx| {
         if let Err(e) = cx.text_system().add_fonts(FONTS.iter().map(|f| Cow::Borrowed(*f)).collect()) {
             eprintln!("fonts: {e}");
         }
         #[cfg(target_os = "macos")]
-        set_dock_icon();
+        {
+            set_dock_icon();
+            services::register();
+        }
         gpui_component::init(cx);
         app::sync_theme(None, cx);
         app::bind_keys(cx);
@@ -123,13 +135,27 @@ fn main() {
             titlebar: Some(TitlebarOptions { title: Some(APP_NAME.into()), ..Default::default() }),
             ..Default::default()
         };
-        let initial = initial.clone();
+        let inbox = inbox::receiver();
+        // A folder that arrived during launch (Finder service, `open -a diskmap <dir>`) wins over argv.
+        let initial = std::iter::from_fn(|| inbox.try_recv().ok()).last().or_else(|| initial.clone());
         cx.spawn(async move |cx| {
-            cx.open_window(window_options, |window, cx| {
-                let view = cx.new(|cx| app::DiskApp::new(initial, window, cx));
-                cx.new(|cx| Root::new(view, window, cx))
-            })
-            .expect("open window");
+            let handle = cx
+                .open_window(window_options, |window, cx| {
+                    let view = cx.new(|cx| app::DiskApp::new(initial, window, cx));
+                    cx.new(|cx| Root::new(view, window, cx))
+                })
+                .expect("open window");
+            while let Ok(path) = inbox.recv().await {
+                cx.update(|cx| cx.activate(true));
+                handle
+                    .update(cx, |root, window, cx| {
+                        window.activate_window();
+                        if let Ok(view) = root.view().clone().downcast::<app::DiskApp>() {
+                            view.update(cx, |this, cx| this.start_scan(path, window, cx));
+                        }
+                    })
+                    .ok();
+            }
         })
         .detach();
     });
