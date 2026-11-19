@@ -1,0 +1,9 @@
+app.kind.dir = Folder
+app.kind.package = Apps and packages
+app.kind.video = Video
+app.kind.image = Images
+app.kind.audio = Audio
+app.kind.archive = Archives and disk images
+app.kind.code = Code and build output
+app.kind.document = Documents
+app.kind.other = Other

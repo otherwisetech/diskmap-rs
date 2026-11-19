@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=diskmap
+GenericName=Disk usage analyzer
+Comment=See what fills your disk as a treemap
+Exec=diskmap %f
+Icon=diskmap
+Terminal=false
+Categories=Utility;System;Filesystem;
+MimeType=inode/directory;

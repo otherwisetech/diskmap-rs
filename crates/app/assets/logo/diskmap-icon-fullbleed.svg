@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3F628F"/>
+      <stop offset="1" stop-color="#253E5E"/>
+    </linearGradient>
+    <linearGradient id="hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#EC8463"/>
+      <stop offset="1" stop-color="#D2603F"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <!-- a squarified treemap: the big warm tile is what fills the disk -->
+  <rect x="232" y="232" width="300" height="560" rx="34" fill="url(#hot)"/>
+  <rect x="552" y="232" width="240" height="268" rx="30" fill="#F6F3EC"/>
+  <rect x="552" y="520" width="118" height="272" rx="26" fill="#D3DFEE"/>
+  <rect x="690" y="520" width="102" height="130" rx="22" fill="#A9BFDC"/>
+  <rect x="690" y="670" width="102" height="122" rx="22" fill="#8AA6CC"/>
+</svg>

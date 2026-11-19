@@ -1,0 +1,9 @@
+app.kind.dir = Carpeta
+app.kind.package = Apps y paquetes
+app.kind.video = Video
+app.kind.image = Imágenes
+app.kind.audio = Audio
+app.kind.archive = Archivos comprimidos y discos
+app.kind.code = Código y compilados
+app.kind.document = Documentos
+app.kind.other = Otros

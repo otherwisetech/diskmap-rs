@@ -1,0 +1,17 @@
+[package]
+name = "diskmap-scan"
+description = "Parallel disk usage scanner and squarified treemap layout"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "scan"
+
+[dependencies]
+rayon.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

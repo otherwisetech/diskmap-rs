@@ -1,0 +1,9 @@
+app.kind.dir = Pasta
+app.kind.package = Apps e pacotes
+app.kind.video = Vídeo
+app.kind.image = Imagens
+app.kind.audio = Áudio
+app.kind.archive = Arquivos compactados e discos
+app.kind.code = Código e compilados
+app.kind.document = Documentos
+app.kind.other = Outros
