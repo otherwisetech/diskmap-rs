@@ -17,8 +17,10 @@ use std::time::{Duration, Instant};
 
 pub(crate) const CONTEXT: &str = "DiskApp";
 const TOAST_FOR: Duration = Duration::from_secs(4);
+/// Shortcut label shown in the status hint for [`CopyPath`].
+pub(crate) const COPY_KEYS: &str = if cfg!(target_os = "macos") { "⌘C" } else { "Ctrl+C" }; // i18n-ok
 
-actions!(diskmap, [OpenFolder, Rescan, ZoomOut, ZoomIn, ClearSelection, Reveal, MoveToTrash]);
+actions!(diskmap, [OpenFolder, Rescan, ZoomOut, ZoomIn, ClearSelection, Reveal, MoveToTrash, CopyPath]);
 
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
@@ -29,6 +31,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", ClearSelection, Some(CONTEXT)),
         KeyBinding::new("secondary-shift-r", Reveal, Some(CONTEXT)),
         KeyBinding::new("secondary-backspace", MoveToTrash, Some(CONTEXT)),
+        KeyBinding::new("secondary-c", CopyPath, Some(CONTEXT)),
     ]);
 }
 
@@ -269,6 +272,19 @@ impl DiskApp {
         if let Some(t) = &self.tree {
             cx.reveal_path(&t.path(id));
         }
+    }
+
+    pub fn copy_path(&mut self, id: NodeId, cx: &mut Context<Self>) {
+        let Some(t) = &self.tree else { return };
+        let path = t.path(id).display().to_string();
+        cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
+        self.toast(i18n::t!("app.copied", path = path), cx);
+    }
+
+    /// Right click on a tile or row: select it and copy its path.
+    pub fn select_and_copy(&mut self, id: NodeId, cx: &mut Context<Self>) {
+        self.select(Some(id), cx);
+        self.copy_path(id, cx);
     }
 
     pub fn largest_files(&mut self) -> Rc<Vec<NodeId>> {
@@ -540,6 +556,12 @@ impl Render for DiskApp {
             .on_action(cx.listener(|this, _: &Reveal, _, cx| {
                 let id = this.target();
                 this.reveal(id, cx);
+            }))
+            .on_action(cx.listener(|this, _: &CopyPath, _, cx| {
+                if matches!(this.phase, Phase::Ready) {
+                    let id = this.target();
+                    this.copy_path(id, cx);
+                }
             }))
             .on_action(cx.listener(|this, _: &MoveToTrash, window, cx| {
                 if let Some(s) = this.selected {

@@ -116,6 +116,14 @@ impl DiskApp {
                                 (h, _) => this.select(h, cx),
                             }
                         }),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(|this, e: &MouseDownEvent, _, cx| {
+                            if let Some(id) = this.hit(e.position) {
+                                this.select_and_copy(id, cx);
+                            }
+                        }),
                     ),
             )
             .child(status)
@@ -138,7 +146,7 @@ impl DiskApp {
                 let pct = pct(n.size, tree.node(self.zoom).size);
                 format!("{}  ·  {}  ·  {}", tree.path(id).display(), human(n.size), i18n::t!("app.panel.share", pct = pct))
             }
-            _ => i18n::t!("app.status.hint"),
+            _ => i18n::t!("app.status.hint", copy = crate::app::COPY_KEYS),
         };
         div().flex_none().h(px(26.)).px(px(12.)).flex().items_center().text_size(px(12.)).text_color(t.ink_muted).truncate().child(text)
     }
