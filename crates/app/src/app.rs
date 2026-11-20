@@ -82,6 +82,7 @@ pub struct DiskApp {
     hits_key: Option<(u64, NodeId, String)>,
     pub(crate) logo: Arc<Image>,
     pub(crate) about_open: bool,
+    github_stars: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -124,12 +125,14 @@ impl DiskApp {
             hits: Rc::new(Vec::new()),
             hits_key: None,
             about_open: false,
+            github_stars: crate::settings::Settings::load().github_stars,
             logo: Arc::new(Image::from_bytes(ImageFormat::Png, crate::ICON_PNG.to_vec())),
             _subs: subs,
         };
         if let Some(p) = initial {
             this.start_scan(p, window, cx);
         }
+        crate::star::refresh(this.github_stars, cx);
         this
     }
 
@@ -458,6 +461,15 @@ impl DiskApp {
         }
     }
 
+    fn set_github_stars(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.github_stars = on;
+        let mut s = crate::settings::Settings::load();
+        s.github_stars = on;
+        s.save();
+        crate::star::refresh(on, cx);
+        cx.notify();
+    }
+
     // ── rendering ─────────────────────────────────────────────────────────────────────────────
 
     fn render_topbar(&self, t: &Tokens, cx: &mut Context<Self>) -> impl IntoElement {
@@ -495,6 +507,7 @@ impl DiskApp {
         let can_rescan = matches!(self.phase, Phase::Ready | Phase::Failed { .. });
         let current = i18n::locale();
         let weak = cx.entity().downgrade();
+        let stars_on = self.github_stars;
         let lang = Button::new("lang").ghost().icon(IconName::Globe).with_size(px(34.)).tooltip(i18n::t!("common.language")).dropdown_menu_with_anchor(Anchor::TopRight, move |mut menu, _, _| {
             menu = menu.label(i18n::t!("common.language"));
             for (code, name) in i18n::available() {
@@ -503,6 +516,11 @@ impl DiskApp {
                     w.update(cx, |this, cx| this.set_language(code, cx)).ok();
                 }));
             }
+            let w = weak.clone();
+            menu = menu.separator().item(PopupMenuItem::new(i18n::t!("app.star.setting")).checked(stars_on).on_click(move |_, _, cx| {
+                w.update(cx, |this, cx| this.set_github_stars(!stars_on, cx)).ok();
+            }));
+            menu = menu.label(i18n::t!("app.star.setting_hint"));
             let w = weak.clone();
             menu.separator().item(PopupMenuItem::new(i18n::t!("app.credit.by", company = crate::COMPANY)).on_click(move |_, window, cx| {
                 w.update(cx, |this, cx| this.show_about(window, cx)).ok();

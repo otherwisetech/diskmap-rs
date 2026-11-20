@@ -10,6 +10,7 @@ mod panel;
 #[cfg(target_os = "macos")]
 mod services;
 mod settings;
+mod star;
 mod theme;
 mod treemap;
 mod ui;

@@ -34,7 +34,10 @@ Ready-made builds for macOS (Apple silicon and Intel), Linux and Windows are att
 
 The downloads are built by GitHub Actions from the tagged source, but they are **not code-signed
 or notarized** (that needs paid certificates), which is why macOS and Windows ask for confirmation
-the first time. diskmap makes no network requests.
+the first time. The only network request diskmap makes is reading the project's star count
+(`api.github.com/repos/otherwisetech/diskmap-rs`, no login, nothing about you or your disk) at
+most once a day, shown next to *Star on GitHub*; turn it off in the globe menu (*Show GitHub star
+count*). Scans never leave your machine.
 
 ## Right-click a folder
 

@@ -22,9 +22,9 @@ impl DiskApp {
     }
 
     /// "diskmap 0.1.0 · Otherwise Technologies LLC · About", opening the About modal.
-    pub(crate) fn render_footer(&self, t: &Tokens, id: &'static str, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(crate) fn render_footer(&self, t: &Tokens, id: &'static str, cx: &mut Context<Self>) -> Div {
         let ink = t.ink;
-        div()
+        let credit = div()
             .id(id)
             .flex_none()
             .text_size(px(12.))
@@ -32,7 +32,8 @@ impl DiskApp {
             .cursor_pointer()
             .hover(move |s| s.text_color(ink).underline())
             .child(i18n::t!("app.about.footer", app = APP_NAME, version = VERSION, company = COMPANY))
-            .on_click(cx.listener(|this, _, window, cx| this.show_about(window, cx)))
+            .on_click(cx.listener(|this, _, window, cx| this.show_about(window, cx)));
+        div().flex().flex_none().items_center().gap(px(14.)).child(crate::star::footer_link(t, cx)).child(credit)
     }
 
     pub(crate) fn render_about(&self, t: &Tokens, cx: &mut Context<Self>) -> impl IntoElement {
@@ -81,7 +82,8 @@ impl DiskApp {
                     .child(div().text_color(t.ink_muted).child(i18n::t!("app.about.location"))),
             )
             .child(ui::filled_button(t, "about-site", t.accent).mt(px(20.)).child(icon(IconName::ExternalLink, 14., t.on_fill())).child(i18n::t!("app.about.website")).on_click(|_, _, cx| cx.open_url(COMPANY_URL)))
-            .child(div().mt(px(12.)).child(source))
+            .child(div().mt(px(12.)).flex().items_center().gap(px(14.)).child(source).child(crate::star::about_button(t, cx)))
+            .child(crate::star::about_ask(t).mt(px(8.)))
             .child(div().mt(px(16.)).text_size(px(11.)).text_color(t.ink_muted).child(i18n::t!("app.about.license")));
         div()
             .id("about-backdrop")
