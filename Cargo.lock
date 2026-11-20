@@ -1482,7 +1482,7 @@ dependencies = [
 
 [[package]]
 name = "diskmap-app"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -1502,11 +1502,11 @@ dependencies = [
 
 [[package]]
 name = "diskmap-i18n"
-version = "0.3.0"
+version = "0.3.1"
 
 [[package]]
 name = "diskmap-scan"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rayon",
  "tempfile",
