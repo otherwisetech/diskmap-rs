@@ -85,6 +85,8 @@ pub struct DiskApp {
     /// Other Otherwise apps installed here, found when About opens.
     pub(crate) other_apps: Vec<(otherwise_link::apps::AppSpec, otherwise_link::apps::Installed)>,
     github_stars: bool,
+    /// Developer projects, shown instead of the treemap while open.
+    pub(crate) dev: Option<crate::dev::DevView>,
     _subs: Vec<Subscription>,
 }
 
@@ -130,6 +132,7 @@ impl DiskApp {
             other_apps: Vec::new(),
             github_stars: crate::settings::Settings::load().github_stars,
             logo: Arc::new(Image::from_bytes(ImageFormat::Png, crate::ICON_PNG.to_vec())),
+            dev: None,
             _subs: subs,
         };
         if let Some(p) = initial {
@@ -141,6 +144,7 @@ impl DiskApp {
 
     pub fn start_scan(&mut self, root: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_scan();
+        self.close_dev(cx);
         let progress = Arc::new(Progress::default());
         self.scan_gen += 1;
         let scan_gen = self.scan_gen;
@@ -547,6 +551,7 @@ impl DiskApp {
             .children(total)
             .when(matches!(self.phase, Phase::Ready), |d| d.child(Input::new(&self.search).prefix(icon(IconName::Search, 14., t.ink_muted)).cleanable(true).w(px(220.)).flex_none()))
             .child(ui::icon_button(t, "rescan", IconName::Redo, can_rescan).when(can_rescan, |d| d.on_click(cx.listener(|this, _, window, cx| this.rescan(window, cx)))))
+            .child(ui::outline_button(t, "dev").child(icon(IconName::SquareTerminal, 15., t.ink)).child(i18n::t!("app.dev.menu")).on_click(cx.listener(|this, _, window, cx| this.open_dev(window, cx))))
             .child(ui::outline_button(t, "open").child(icon(IconName::FolderOpen, 15., t.ink)).child(i18n::t!("app.topbar.open")).on_click(cx.listener(|this, _, window, cx| this.open_dialog(window, cx))))
             .child(lang)
     }
@@ -586,7 +591,16 @@ impl DiskApp {
                     .max_w(px(720.))
                     .children(place("home", IconName::CircleUser, i18n::t!("app.start.home"), home))
                     .children(place("downloads", IconName::Inbox, i18n::t!("app.start.downloads"), downloads))
-                    .children(place("disk", IconName::HardDrive, i18n::t!("app.start.disk"), Some(disk))),
+                    .children(place("disk", IconName::HardDrive, i18n::t!("app.start.disk"), Some(disk)))
+                    .child(
+                        ui::outline_button(t, "dev-start")
+                            .h(px(64.))
+                            .w(px(220.))
+                            .gap(px(12.))
+                            .child(icon(IconName::SquareTerminal, 20., t.accent))
+                            .child(div().flex().flex_col().min_w_0().child(div().child(i18n::t!("app.dev.title"))).child(div().text_size(px(11.)).text_color(t.ink_muted).font_weight(FontWeight::NORMAL).truncate().child(i18n::t!("app.dev.start_hint"))))
+                            .on_click(cx.listener(|this, _, window, cx| this.open_dev(window, cx))),
+                    ),
             )
             .child(ui::filled_button(t, "choose", t.accent).child(icon(IconName::FolderOpen, 15., t.on_fill())).child(i18n::t!("app.start.choose")).on_click(cx.listener(|this, _, window, cx| this.open_dialog(window, cx))))
             .when(cfg!(target_os = "macos"), |d| d.child(div().max_w(px(460.)).text_center().text_size(px(12.)).text_color(t.ink_muted).child(i18n::t!("app.start.mac_hint"))))
@@ -683,7 +697,7 @@ impl Render for DiskApp {
             let text = i18n::t!("app.search.placeholder", keys = SEARCH_KEYS);
             self.search.update(cx, |s, cx| s.set_placeholder(text, window, cx));
         }
-        let body: AnyElement = match &self.phase {
+        let body: AnyElement = if self.dev.is_some() { self.render_dev(&t, cx) } else { match &self.phase {
             Phase::Start => self.render_start(&t, cx).into_any_element(),
             Phase::Scanning { root, progress, started } => {
                 let (root, progress, started) = (root.clone(), progress.clone(), *started);
@@ -694,8 +708,8 @@ impl Render for DiskApp {
                 self.render_failed(&t, &root, &message, cx).into_any_element()
             }
             Phase::Ready => div().flex().size_full().min_h_0().child(self.render_treemap(window, cx)).child(self.render_panel(&t, cx)).into_any_element(),
-        };
-        let ready = matches!(self.phase, Phase::Ready);
+        } };
+        let ready = matches!(self.phase, Phase::Ready) || self.dev.is_some();
         let about = self.about_open;
         div()
             .key_context(CONTEXT)
@@ -710,7 +724,7 @@ impl Render for DiskApp {
                 }
             }))
             // the modal swallows every other shortcut, e.g. ⌘⌫ must not trash what sits behind it
-            .when(!about, |d| {
+            .when(!about && self.dev.is_none(), |d| {
                 d.on_action(cx.listener(|this, _: &OpenFolder, window, cx| this.open_dialog(window, cx)))
                 .on_action(cx.listener(|this, _: &Rescan, window, cx| this.rescan(window, cx)))
                 .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.zoom_out(cx)))
