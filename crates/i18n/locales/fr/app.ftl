@@ -76,3 +76,9 @@ app.explorer.failed = Impossible de modifier le menu de l’Explorateur : {detai
 app.about.more_apps = Autres apps Otherwise sur cet ordinateur
 app.today.low_space = Espace disque faible sur {volume} : {pct} % libre
 app.today.low_space_body = {free} libres sur {total}. Ouvrez diskmap pour voir ce qui le remplit.
+
+# data folder, Vcity
+app.menu.help = Aide
+app.menu.reveal_data = Afficher le dossier de réglages de diskmap
+app.vcity.menu = Créez votre boutique sur Vcity
+app.vcity.pitch = Vous vendez des produits ou des services ? Créez la boutique en ligne de votre entreprise sur Vcity : catalogue, commandes, paiements, réservations, chat avec les clients et bien plus encore.

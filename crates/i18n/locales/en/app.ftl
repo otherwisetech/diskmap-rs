@@ -76,3 +76,9 @@ app.explorer.failed = Could not change Explorer’s menu: {detail}
 app.about.more_apps = More Otherwise apps on this computer
 app.today.low_space = Low disk space on {volume}: {pct}% free
 app.today.low_space_body = {free} free of {total}. Open diskmap to see what fills it.
+
+# data folder, Vcity
+app.menu.help = Help
+app.menu.reveal_data = Show diskmap’s settings folder
+app.vcity.menu = Create your store on Vcity
+app.vcity.pitch = Sell products or services? Create your business’s online store on Vcity — catalog, orders, payments, bookings, customer chat and more.

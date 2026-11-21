@@ -76,3 +76,9 @@ app.explorer.failed = No se pudo cambiar el menú del Explorador: {detail}
 app.about.more_apps = Más apps de Otherwise en este computador
 app.today.low_space = Poco espacio en {volume}: {pct} % libre
 app.today.low_space_body = {free} libres de {total}. Abre diskmap para ver qué lo llena.
+
+# data folder, Vcity
+app.menu.help = Ayuda
+app.menu.reveal_data = Mostrar la carpeta de ajustes de diskmap
+app.vcity.menu = Crea tu tienda en Vcity
+app.vcity.pitch = ¿Vendes productos o servicios? Crea la tienda virtual de tu empresa en Vcity: catálogo, pedidos, pagos, reservas, chat con clientes y mucho más.

@@ -1,4 +1,5 @@
-//! Tiny settings file (`settings.json` in the platform config dir). Hand-rolled JSON.
+//! Tiny settings file (`settings.json` in `<data root>/diskmap/`, see `storage.rs`). Hand-rolled
+//! JSON.
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,14 +16,7 @@ impl Default for Settings {
 }
 
 pub(crate) fn dir() -> Option<PathBuf> {
-    if cfg!(windows) {
-        return std::env::var_os("APPDATA").filter(|v| !v.is_empty()).map(|d| PathBuf::from(d).join("diskmap"));
-    }
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    if cfg!(target_os = "macos") {
-        return home.map(|h| h.join("Library/Application Support/diskmap"));
-    }
-    std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| home.map(|h| h.join(".config"))).map(|d| d.join("diskmap"))
+    Some(crate::storage::app_dir())
 }
 
 fn file() -> Option<PathBuf> {
