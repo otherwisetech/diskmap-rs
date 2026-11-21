@@ -528,6 +528,8 @@ impl DiskApp {
             menu.separator().item(PopupMenuItem::new(i18n::t!("app.credit.by", company = crate::COMPANY)).on_click(move |_, window, cx| {
                 w.update(cx, |this, cx| this.show_about(window, cx)).ok();
             }))
+            .item(PopupMenuItem::new(i18n::t!("app.menu.reveal_data")).on_click(|_, _, cx| crate::storage::reveal_data_dir(cx)))
+            .item(PopupMenuItem::new(crate::vcity::menu_label()).on_click(|_, _, cx| crate::vcity::open(cx)))
         });
         div()
             .flex()

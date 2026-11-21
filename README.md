@@ -94,6 +94,19 @@ Otherwise Technologies' apps share. Everything stays on your computer.
   last ran.
 - **About** lists the other Otherwise apps installed on this computer; click one to open it.
 
+## Where files live
+
+diskmap keeps no documents: scans live in memory. Its settings and the small star-count cache are
+in the Otherwise data folder, `~/.otherwise/diskmap/` (or wherever you moved the data root in
+Otherwise Apps). Version 0.5 moves them there once from the old folder
+(`~/Library/Application Support/diskmap`, `%APPDATA%\diskmap`, `~/.config/diskmap`), never
+overwriting anything, and leaves a `.migrated-to-otherwise` note. *Show diskmap's settings folder*
+is in the app menu and the globe menu; `OTHERWISE_DATA_DIR` points the data root elsewhere.
+
+**Help → Crea tu tienda en Vcity** (also in About) is a short invitation to
+[Vcity](https://vcity.io), online stores for businesses; the link only carries
+`utm_source=diskmap`, nothing about you.
+
 ## Build and run
 
 ```sh

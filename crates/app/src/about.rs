@@ -124,6 +124,7 @@ impl DiskApp {
             .child(ui::filled_button(t, "about-site", t.accent).mt(px(20.)).child(icon(IconName::ExternalLink, 14., t.on_fill())).child(i18n::t!("app.about.website")).on_click(|_, _, cx| cx.open_url(COMPANY_URL)))
             .child(div().mt(px(12.)).flex().items_center().gap(px(14.)).child(source).child(crate::star::about_button(t, cx)))
             .child(crate::star::about_ask(t).mt(px(8.)))
+            .child(crate::vcity::about_block(t))
             .children(self.render_other_apps(t))
             .child(div().mt(px(16.)).text_size(px(11.)).text_color(t.ink_muted).child(i18n::t!("app.about.license")));
         div()

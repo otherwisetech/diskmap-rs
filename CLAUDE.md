@@ -8,7 +8,8 @@ Same conventions as genealogy-rs.
 crates/scan   diskmap-scan: walk::scan → Tree (arena, children sorted by size), treemap::layout → Tiles. No UI.
 crates/i18n   diskmap-i18n: embedded translation catalogs, t!/tn!/tv! macros, i18n guard tests
 crates/app    `diskmap` desktop app (GPUI + gpui-component); otherwise.rs = otherwise-link (links,
-              About's other apps, low-space Today feed)
+              About's other apps, low-space Today feed); storage.rs = `<data root>/diskmap/` +
+              one-time migration from the old config folder; vcity.rs = Vcity invitation
 ```
 
 ## Rules
