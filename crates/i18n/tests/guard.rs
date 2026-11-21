@@ -22,7 +22,7 @@ const TRANSPARENT: &[&str] = &["Some", "Ok", "Err", "format", "from", "into", "t
 
 /// Keys built at runtime (`format!("app.kind.{}", …)`); every key under them counts as used.
 /// A new dynamic prefix must be added here on purpose.
-const DYNAMIC_PREFIXES: &[&str] = &["app.kind."];
+const DYNAMIC_PREFIXES: &[&str] = &["app.kind.", "app.dev.kind."];
 
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {

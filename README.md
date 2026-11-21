@@ -20,6 +20,17 @@ UI in Spanish, English, Portuguese and French.
 - Click to select, double-click / Enter to go in, Backspace to go up, breadcrumb to jump.
 - Side panel: size, share of view and of the whole scan, contents, largest files, legend.
 - Move to Trash (asks first, recoverable) and Reveal in Finder / Explorer.
+- **Developer projects** (*Dev projects* in the top bar or on the start screen): finds the build
+  folders under your home folder (or the folders you list) — `target/` of cargo / maven,
+  `node_modules/`, `.next/`, Gradle's `.gradle/` and `build/`, Xcode's `DerivedData` — groups
+  them by project (the git root above them) with size and when the project last changed, and
+  lists package caches (cargo registry, npm, pnpm, Gradle) and standalone cargo target folders
+  such as `~/.cache/<app>-target`. Folders of projects untouched for 14 days are pre-selected
+  (download caches never are). Deleting lists every path and size, says it bypasses the Trash
+  (they're regenerable, and the Trash would keep the space), and asks a second time; each folder
+  is checked again right before (still that kind of build folder, not a link, and in a git
+  repository ignored entirely by git). With [rama](https://github.com/otherwisetech/rama-rs)
+  installed, git projects get *Open in rama* and the worktrees rama knows are marked.
 
 ## Download
 
@@ -83,6 +94,9 @@ Otherwise Technologies' apps share. Everything stays on your computer.
   |------|------|
   | `otherwise://diskmap` | brings diskmap to the front |
   | `otherwise://diskmap/scan?path=/Volumes/Backup` | scans that folder or disk (absolute, percent-encoded path) |
+  | `otherwise://diskmap/dev` | opens Developer projects |
+
+  diskmap opens `otherwise://rama/repo?path=…` for *Open in rama*.
 
   macOS registers the scheme from the app's `Info.plist`; on Windows diskmap registers it for
   your user (`HKCU\Software\Classes\otherwise-diskmap`) every time it starts; on Linux
@@ -91,13 +105,15 @@ Otherwise Technologies' apps share. Everything stays on your computer.
 - **Today.** While diskmap runs it checks your disks every 10 minutes and, when one has less than
   10 % free, puts an alert in Otherwise Apps' *Today* view that opens diskmap on that disk. The
   feed is `today/diskmap.json` in the shared Otherwise folder and expires a day after diskmap
-  last ran.
+  last ran. When the last Developer projects search found build folders and caches worth a tenth
+  of that disk's used space, the alert says how much and opens Developer projects instead.
 - **About** lists the other Otherwise apps installed on this computer; click one to open it.
 
 ## Where files live
 
-diskmap keeps no documents: scans live in memory. Its settings and the small star-count cache are
-in the Otherwise data folder, `~/.otherwise/diskmap/` (or wherever you moved the data root in
+diskmap keeps no documents: scans live in memory. Its settings, the small star-count cache, the
+Developer projects folders (`dev-roots.txt`) and the last search's total (`dev-summary.json`, for
+the Today alert) are in the Otherwise data folder, `~/.otherwise/diskmap/` (or wherever you moved the data root in
 Otherwise Apps). Version 0.5 moves them there once from the old folder
 (`~/Library/Application Support/diskmap`, `%APPDATA%\diskmap`, `~/.config/diskmap`), never
 overwriting anything, and leaves a `.migrated-to-otherwise` note. *Show diskmap's settings folder*
@@ -120,7 +136,8 @@ On macOS, grant **Full Disk Access** (System Settings → Privacy & Security) to
 ## Layout
 
 ```
-crates/scan   diskmap-scan: parallel walker, Tree arena, squarified treemap layout — no UI
+crates/scan   diskmap-scan: parallel walker, Tree arena, squarified treemap layout, dev build
+              folders (dev.rs) — no UI
 crates/i18n   diskmap-i18n: embedded catalogs (es, en, pt, fr) and i18n guard tests
 crates/app    `diskmap` desktop app
 ```
