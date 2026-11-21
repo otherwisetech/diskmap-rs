@@ -73,3 +73,6 @@ app.explorer.remove = Remove diskmap from Explorer’s menu
 app.explorer.added = Right-click any folder in Explorer to analyze it with diskmap.
 app.explorer.removed = diskmap is no longer in Explorer’s menu.
 app.explorer.failed = Could not change Explorer’s menu: {detail}
+app.about.more_apps = More Otherwise apps on this computer
+app.today.low_space = Low disk space on {volume}: {pct}% free
+app.today.low_space_body = {free} free of {total}. Open diskmap to see what fills it.

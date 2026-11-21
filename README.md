@@ -71,6 +71,29 @@ count*). Scans never leave your machine.
   adding the entry, or click the button again from its new place. On Windows 11 the entry is under
   *Show more options*.
 
+## Works with other Otherwise apps
+
+diskmap uses [otherwise-link](https://github.com/otherwisetech/otherwise-link), the small layer
+Otherwise Technologies' apps share. Everything stays on your computer.
+
+- **Links.** diskmap opens `otherwise-diskmap://` links (also `otherwise://diskmap/…` through
+  [Otherwise Apps](https://github.com/otherwisetech/otherwise-apps)):
+
+  | Link | Does |
+  |------|------|
+  | `otherwise://diskmap` | brings diskmap to the front |
+  | `otherwise://diskmap/scan?path=/Volumes/Backup` | scans that folder or disk (absolute, percent-encoded path) |
+
+  macOS registers the scheme from the app's `Info.plist`; on Windows diskmap registers it for
+  your user (`HKCU\Software\Classes\otherwise-diskmap`) every time it starts; on Linux
+  `diskmap.desktop` declares `x-scheme-handler/otherwise-diskmap` and diskmap makes itself the
+  handler when that file is in `~/.local/share/applications`.
+- **Today.** While diskmap runs it checks your disks every 10 minutes and, when one has less than
+  10 % free, puts an alert in Otherwise Apps' *Today* view that opens diskmap on that disk. The
+  feed is `today/diskmap.json` in the shared Otherwise folder and expires a day after diskmap
+  last ran.
+- **About** lists the other Otherwise apps installed on this computer; click one to open it.
+
 ## Build and run
 
 ```sh

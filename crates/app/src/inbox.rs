@@ -1,9 +1,12 @@
-//! Folders handed to diskmap from outside (Finder service, `open -a diskmap <dir>`, file managers).
-//! Platform callbacks run without `&mut App`, so they post here and a task in `main` drains it.
+//! Folders and links handed to diskmap from outside (Finder service, `open -a diskmap <dir>`, file
+//! managers, `otherwise-diskmap://` links). Platform callbacks run without `&mut App`, so they
+//! post here and a task in `main` drains it.
+use crate::otherwise::{self, Action};
+use otherwise_link::Link;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-type Channel = (async_channel::Sender<PathBuf>, async_channel::Receiver<PathBuf>);
+type Channel = (async_channel::Sender<Action>, async_channel::Receiver<Action>);
 
 fn channel() -> &'static Channel {
     static CHANNEL: OnceLock<Channel> = OnceLock::new();
@@ -11,18 +14,36 @@ fn channel() -> &'static Channel {
 }
 
 pub fn send(path: PathBuf) {
-    channel().0.try_send(path).ok();
+    send_action(Action::Scan(path));
 }
 
-pub fn receiver() -> async_channel::Receiver<PathBuf> {
+pub fn send_action(a: Action) {
+    channel().0.try_send(a).ok();
+}
+
+pub fn receiver() -> async_channel::Receiver<Action> {
     channel().1.clone()
 }
 
-/// GPUI's open-URLs callback: only local `file://` URLs are scanned.
+/// A local `file://` URL or one of our `otherwise://` links.
+pub fn url_action(url: &str) -> Option<Action> {
+    file_url_to_path(url).map(Action::Scan).or_else(|| Link::parse(url).ok().and_then(|l| otherwise::action(&l)))
+}
+
+/// GPUI's open-URLs callback.
 pub fn send_urls(urls: Vec<String>) {
-    if let Some(p) = urls.iter().find_map(|u| file_url_to_path(u)) {
-        send(p);
+    if let Some(a) = urls.iter().find_map(|u| url_action(u)) {
+        send_action(a);
     }
+}
+
+/// The command-line argument: a link (Linux `%u`, Windows URL handler), a `file://` URL or a path.
+pub fn arg_action(arg: &str) -> Action {
+    #[cfg(windows)]
+    if !arg.contains("://") {
+        return Action::Scan(PathBuf::from(normalize_arg(arg.to_string())));
+    }
+    url_action(arg).unwrap_or_else(|| Action::Scan(PathBuf::from(arg)))
 }
 
 pub fn file_url_to_path(url: &str) -> Option<PathBuf> {
@@ -81,5 +102,16 @@ mod tests {
         assert_eq!(file_url_to_path("file:///bad%zz"), Some(PathBuf::from("/bad%zz")));
         assert_eq!(file_url_to_path("https://example.com/"), None);
         assert_eq!(file_url_to_path("file://server/share"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn arguments_and_urls_become_actions() {
+        assert_eq!(arg_action("/tmp/x"), Action::Scan(PathBuf::from("/tmp/x")));
+        assert_eq!(arg_action("file:///tmp/a%20b"), Action::Scan(PathBuf::from("/tmp/a b")));
+        assert_eq!(arg_action("otherwise-diskmap://scan?path=%2FVolumes%2FX"), Action::Scan(PathBuf::from("/Volumes/X")));
+        assert_eq!(arg_action("otherwise://diskmap"), Action::Focus);
+        assert_eq!(url_action("otherwise://rama/repo?path=/x"), None);
+        assert_eq!(url_action("https://example.com"), None);
     }
 }
