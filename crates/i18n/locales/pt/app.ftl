@@ -73,3 +73,6 @@ app.explorer.remove = Remover diskmap do menu do Explorador
 app.explorer.added = Clique com o botão direito em qualquer pasta do Explorador para analisá-la com diskmap.
 app.explorer.removed = diskmap não aparece mais no menu do Explorador.
 app.explorer.failed = Não foi possível alterar o menu do Explorador: {detail}
+app.about.more_apps = Mais apps da Otherwise neste computador
+app.today.low_space = Pouco espaço em {volume}: {pct}% livre
+app.today.low_space_body = {free} livres de {total}. Abra o diskmap para ver o que o ocupa.

@@ -11,7 +11,47 @@ impl DiskApp {
         self.about_open = true;
         // keys must not keep typing into the search field behind the modal
         self.focus_main(window, cx);
+        let task = cx.background_executor().spawn(async { crate::otherwise::other_apps(&otherwise_link::apps::Locations::system()) });
+        cx.spawn(async move |this, cx| {
+            let found = task.await;
+            this.update(cx, |this, cx| {
+                this.other_apps = found;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
         cx.notify();
+    }
+
+    /// "More Otherwise apps": the ones installed here, each opening on click.
+    fn render_other_apps(&self, t: &Tokens) -> Option<Div> {
+        if self.other_apps.is_empty() {
+            return None;
+        }
+        let rows = self.other_apps.iter().enumerate().map(|(i, (spec, installed))| {
+            let installed = installed.clone();
+            let hover = t.canvas;
+            let version = installed.version.clone().unwrap_or_default();
+            div()
+                .id(("about-app", i))
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(10.))
+                .px(px(10.))
+                .py(px(5.))
+                .rounded(px(8.))
+                .cursor_pointer()
+                .hover(move |s| s.bg(hover))
+                .child(div().text_size(px(13.)).text_color(t.ink).child(spec.name.clone()))
+                .child(div().flex().items_center().gap(px(6.)).text_size(px(11.)).text_color(t.ink_muted).child(version).child(icon(IconName::ExternalLink, 12., t.ink_muted)))
+                .on_click(move |_, _, _| {
+                    let app = installed.clone();
+                    std::thread::spawn(move || crate::otherwise::launch(&app));
+                })
+        });
+        Some(div().mt(px(18.)).w_full().flex().flex_col().gap(px(4.)).child(ui::section_title(t, i18n::t!("app.about.more_apps"))).children(rows))
     }
 
     pub fn close_about(&mut self, cx: &mut Context<Self>) {
@@ -84,6 +124,7 @@ impl DiskApp {
             .child(ui::filled_button(t, "about-site", t.accent).mt(px(20.)).child(icon(IconName::ExternalLink, 14., t.on_fill())).child(i18n::t!("app.about.website")).on_click(|_, _, cx| cx.open_url(COMPANY_URL)))
             .child(div().mt(px(12.)).flex().items_center().gap(px(14.)).child(source).child(crate::star::about_button(t, cx)))
             .child(crate::star::about_ask(t).mt(px(8.)))
+            .children(self.render_other_apps(t))
             .child(div().mt(px(16.)).text_size(px(11.)).text_color(t.ink_muted).child(i18n::t!("app.about.license")));
         div()
             .id("about-backdrop")

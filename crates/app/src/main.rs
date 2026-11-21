@@ -6,6 +6,7 @@ mod app;
 #[cfg(windows)]
 mod explorer;
 mod inbox;
+mod otherwise;
 mod panel;
 #[cfg(target_os = "macos")]
 mod services;
@@ -100,6 +101,13 @@ const FONTS: [&[u8]; 3] = [
     include_bytes!("../assets/fonts/Inter-SemiBold.ttf"),
 ];
 
+fn scan_path(a: otherwise::Action) -> Option<PathBuf> {
+    match a {
+        otherwise::Action::Scan(p) => Some(p),
+        otherwise::Action::Focus => None,
+    }
+}
+
 fn main() {
     i18n::set_locale(settings::initial_language(&settings::Settings::load()));
     let arg = std::env::args().nth(1);
@@ -107,9 +115,9 @@ fn main() {
         println!("{}", i18n::t!("app.cli.usage"));
         return;
     }
-    #[cfg(windows)]
-    let arg = arg.map(inbox::normalize_arg);
-    let initial: Option<PathBuf> = arg.map(PathBuf::from);
+    let initial = arg.as_deref().map(inbox::arg_action);
+    otherwise::register_scheme();
+    otherwise::watch_today();
     let application = gpui_platform::application().with_assets(AppAssets);
     application.on_open_urls(inbox::send_urls);
     application.run(move |cx| {
@@ -138,7 +146,7 @@ fn main() {
         };
         let inbox = inbox::receiver();
         // A folder that arrived during launch (Finder service, `open -a diskmap <dir>`) wins over argv.
-        let initial = std::iter::from_fn(|| inbox.try_recv().ok()).last().or_else(|| initial.clone());
+        let initial = std::iter::from_fn(|| inbox.try_recv().ok()).filter_map(scan_path).last().or_else(|| initial.clone().and_then(scan_path));
         cx.spawn(async move |cx| {
             let handle = cx
                 .open_window(window_options, |window, cx| {
@@ -146,12 +154,14 @@ fn main() {
                     cx.new(|cx| Root::new(view, window, cx))
                 })
                 .expect("open window");
-            while let Ok(path) = inbox.recv().await {
+            while let Ok(action) = inbox.recv().await {
                 cx.update(|cx| cx.activate(true));
                 handle
                     .update(cx, |root, window, cx| {
                         window.activate_window();
-                        if let Ok(view) = root.view().clone().downcast::<app::DiskApp>() {
+                        if let Some(path) = scan_path(action)
+                            && let Ok(view) = root.view().clone().downcast::<app::DiskApp>()
+                        {
                             view.update(cx, |this, cx| this.start_scan(path, window, cx));
                         }
                     })

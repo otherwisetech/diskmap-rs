@@ -59,6 +59,15 @@ cat > "$app/Contents/Info.plist" <<PLIST
       <key>NSRequiredContext</key><dict><key>NSServiceCategory</key><string>public.folder</string></dict>
     </dict>
   </array>
+  <!-- otherwise-diskmap:// links (otherwise-link: register::macos_url_types) -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>io.github.otherwisetech.diskmap</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>CFBundleURLSchemes</key><array><string>otherwise-diskmap</string></array>
+    </dict>
+  </array>
   <!-- Alternate, never Owner: Finder keeps opening folders; diskmap only shows up under "Open With" -->
   <key>CFBundleDocumentTypes</key>
   <array>

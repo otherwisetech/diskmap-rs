@@ -82,6 +82,8 @@ pub struct DiskApp {
     hits_key: Option<(u64, NodeId, String)>,
     pub(crate) logo: Arc<Image>,
     pub(crate) about_open: bool,
+    /// Other Otherwise apps installed here, found when About opens.
+    pub(crate) other_apps: Vec<(otherwise_link::apps::AppSpec, otherwise_link::apps::Installed)>,
     github_stars: bool,
     _subs: Vec<Subscription>,
 }
@@ -125,6 +127,7 @@ impl DiskApp {
             hits: Rc::new(Vec::new()),
             hits_key: None,
             about_open: false,
+            other_apps: Vec::new(),
             github_stars: crate::settings::Settings::load().github_stars,
             logo: Arc::new(Image::from_bytes(ImageFormat::Png, crate::ICON_PNG.to_vec())),
             _subs: subs,
