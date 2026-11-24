@@ -4,7 +4,7 @@ members = ["crates/i18n", "crates/scan", "crates/app"]
 default-members = ["crates/i18n", "crates/scan"]
 
 [workspace.package]
-version = "0.6.1"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -17,6 +17,8 @@ anyhow = "1"
 rayon = "1"
 # deep links, app discovery and the Today feed shared by Otherwise apps
 otherwise-link = { git = "https://github.com/otherwisetech/otherwise-link", tag = "v0.2.0" }
+# the AI panel (⌘J): the user's own Claude Code / Codex / opencode / Ollama (MIT/Apache)
+otherwise-agent-panel = { git = "https://github.com/otherwisetech/otherwise-agent-panel", tag = "v0.2.0" }
 # GPUI stack, same as genealogy-rs. Git deps move: Cargo.lock pins revs.
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }

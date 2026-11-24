@@ -26,6 +26,8 @@ async-channel = "2"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 serde_json = "1"
 otherwise-link.workspace = true
+otherwise-agent-panel.workspace = true
+rayon.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 # free space per mounted volume (already in the tree through gpui)
 sysinfo = { version = "0.31", default-features = false, features = ["disk"] }

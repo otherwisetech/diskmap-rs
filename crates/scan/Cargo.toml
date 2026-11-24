@@ -12,6 +12,8 @@ name = "scan"
 
 [dependencies]
 rayon.workspace = true
+# the AI panel's snapshot and MCP server (JSON)
+serde_json = "1"
 
 [dev-dependencies]
 tempfile = "3"

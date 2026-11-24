@@ -2,6 +2,7 @@
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
 mod about;
+mod agent;
 mod app;
 mod dev;
 #[cfg(windows)]
@@ -41,6 +42,7 @@ pub(crate) fn set_app_menus(cx: &mut App) {
         MenuItem::action(i18n::t!("app.credit.menu", company = COMPANY), OpenWebsite),
         MenuItem::separator(),
         MenuItem::action(i18n::t!("app.menu.reveal_data"), RevealData),
+        MenuItem::action(i18n::t!("app.agent.open"), otherwise_agent_panel::ui::TogglePanel),
         MenuItem::separator(),
         MenuItem::action(i18n::t!("app.menu.quit"), Quit),
     ];
@@ -48,16 +50,16 @@ pub(crate) fn set_app_menus(cx: &mut App) {
     cx.set_menus(vec![Menu { name: APP_NAME.into(), items, disabled: false }, Menu { name: i18n::t!("app.menu.help").into(), items: help, disabled: false }]);
 }
 
+/// The window's app view (the root view is the AI panel's dock around it).
+struct MainView(WeakEntity<app::DiskApp>);
+
+impl Global for MainView {}
+
 /// Handled at app level so the menu item works wherever focus is.
 fn show_about(_: &ShowAbout, cx: &mut App) {
+    let Some(view) = cx.try_global::<MainView>().and_then(|m| m.0.upgrade()) else { return };
     for handle in cx.windows() {
-        let Some(root) = handle.downcast::<Root>() else { continue };
-        root.update(cx, |root, window, cx| {
-            if let Ok(view) = root.view().clone().downcast::<app::DiskApp>() {
-                view.update(cx, |this, cx| this.show_about(window, cx));
-            }
-        })
-        .ok();
+        handle.update(cx, |_, window, cx| view.update(cx, |this, cx| this.show_about(window, cx))).ok();
     }
 }
 
@@ -115,6 +117,24 @@ fn scan_path(a: otherwise::Action) -> Option<PathBuf> {
 }
 
 fn main() {
+    // `diskmap mcp …`: the AI panel's MCP server for one session (no window)
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("mcp") {
+        let code = match scan::mcp::Server::from_args(&args[1..]) {
+            Ok(mut srv) => match srv.serve(std::io::stdin().lock(), std::io::stdout().lock()) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("mcp: {e}"); // i18n-ok: developer diagnostic
+                    1
+                }
+            },
+            Err(e) => {
+                eprintln!("mcp: {e}"); // i18n-ok: developer diagnostic
+                2
+            }
+        };
+        std::process::exit(code);
+    }
     storage::migrate_on_startup();
     i18n::set_locale(settings::initial_language(&settings::Settings::load()));
     let arg = std::env::args().nth(1);
@@ -146,6 +166,8 @@ fn main() {
         cx.on_action(|_: &RevealData, cx| storage::reveal_data_dir(cx));
         cx.on_action(show_about);
         gpui_component::set_locale(i18n::locale());
+        otherwise_agent_panel::ui::init(cx);
+        agent::set_panel_locale(i18n::locale());
         set_app_menus(cx);
         cx.on_window_closed(|cx, _| cx.quit()).detach();
         let window_options = WindowOptions {
@@ -168,15 +190,21 @@ fn main() {
                         }
                         this
                     });
-                    cx.new(|cx| Root::new(view, window, cx))
+                    cx.set_global(MainView(view.downgrade()));
+                    let focus = view.read(cx).focus_handle();
+                    let host: std::rc::Rc<dyn otherwise_agent_panel::ui::AgentHost> = std::rc::Rc::new(agent::Host { app: view.downgrade() });
+                    let dock = cx.new(|cx| otherwise_agent_panel::ui::AgentDock::new(view.clone(), Some(focus), host, window, cx));
+                    let panel = dock.read(cx).panel().downgrade();
+                    view.update(cx, |v, _| v.assistant.panel = Some(panel));
+                    cx.new(|cx| Root::new(dock, window, cx))
                 })
                 .expect("open window");
             while let Ok(action) = inbox.recv().await {
                 cx.update(|cx| cx.activate(true));
                 handle
-                    .update(cx, |root, window, cx| {
+                    .update(cx, |_, window, cx| {
                         window.activate_window();
-                        let Ok(view) = root.view().clone().downcast::<app::DiskApp>() else { return };
+                        let Some(view) = cx.try_global::<MainView>().and_then(|m| m.0.upgrade()) else { return };
                         if action == otherwise::Action::Dev {
                             view.update(cx, |this, cx| this.open_dev(window, cx));
                         } else if let Some(path) = scan_path(action) {

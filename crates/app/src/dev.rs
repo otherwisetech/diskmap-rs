@@ -88,7 +88,7 @@ pub fn plan<'a>(r: &'a Report, selected: &HashSet<PathBuf>) -> Vec<(&'a Artifact
     out
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
@@ -131,7 +131,7 @@ impl DiskApp {
         cx.notify();
     }
 
-    fn scan_dev(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn scan_dev(&mut self, cx: &mut Context<Self>) {
         let Some(d) = self.dev.as_mut() else { return };
         if let DevState::Scanning { progress, .. } = &d.state {
             progress.cancel.store(true, Relaxed);
@@ -169,7 +169,12 @@ impl DiskApp {
                 d.selected = default_selection(&report);
                 d.known = known;
                 d.rama = rama;
-                d.state = DevState::Ready(Rc::new(report));
+                let report = Rc::new(report);
+                d.state = DevState::Ready(report.clone());
+                // an assistant session sees the same report
+                if !cancelled && this.assistant_active() {
+                    this.assistant_take_report(report, cx);
+                }
                 cx.notify();
             })
             .ok();

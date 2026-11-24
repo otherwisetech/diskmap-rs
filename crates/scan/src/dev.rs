@@ -347,7 +347,23 @@ pub fn find(roots: &[PathBuf], home: Option<&Path>, progress: &Progress) -> Repo
     Report { projects, caches }
 }
 
-/// Why [`delete`] left a folder alone.
+/// What git says about a project, for the assistant: `None` when git couldn't tell (or, for
+/// `unpushed`, the branch has no upstream).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GitState {
+    pub dirty: Option<bool>,
+    pub unpushed: Option<bool>,
+}
+
+/// Uncommitted changes (untracked files included) and commits not on the upstream.
+pub fn git_state(root: &Path) -> GitState {
+    let run = |args: &[&str]| std::process::Command::new("git").arg("-C").arg(root).arg("--no-optional-locks").args(args).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok().filter(|o| o.status.success()).map(|o| o.stdout);
+    let dirty = run(&["status", "--porcelain"]).map(|o| !o.is_empty());
+    let unpushed = run(&["rev-list", "--count", "@{upstream}..HEAD"]).and_then(|o| String::from_utf8_lossy(&o).trim().parse::<u64>().ok()).map(|n| n > 0);
+    GitState { dirty, unpushed }
+}
+
+/// Why [`delete_with`] left a folder alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
     /// Not (anymore) a build folder of that kind, a symlink, or outside its project.

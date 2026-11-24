@@ -36,6 +36,13 @@ UI in Spanish, English, Portuguese and French.
   is checked again right before (still that kind of build folder, not protected, not a link,
   and in a git repository ignored entirely by git). With [rama](https://github.com/otherwisetech/rama-rs)
   installed, git projects get *Open in rama* and the worktrees rama knows are marked.
+- **Assistant** (⌘J): your own Claude Code, Codex, opencode or a local Ollama model, docked next
+  to the map, reading what diskmap found (the biggest folders and files, space by type, developer
+  projects with age and git state) through `diskmap mcp`. Try "What is filling up my disk?" or
+  "What can I delete safely?". It can only propose moving regenerable build folders and caches to
+  the Trash, as a card you accept; never settings, installs, cloud folders, personal files or
+  projects, and nothing is pre-selected. Folder names and paths it reads go to the provider you
+  chose.
 
 ## Download
 

@@ -64,6 +64,17 @@ impl Tree {
         path
     }
 
+    /// The node at `path` (absolute, inside the root), if the scan has it and it wasn't removed.
+    pub fn find(&self, path: &Path) -> Option<NodeId> {
+        let rel = path.strip_prefix(&self.root_path).ok()?;
+        let mut cur = Tree::ROOT;
+        for part in rel.components() {
+            let name = part.as_os_str().to_str()?;
+            cur = *self.node(cur).children.iter().find(|&&c| &*self.node(c).name == name)?;
+        }
+        (!self.node(cur).removed).then_some(cur)
+    }
+
     /// Root first, `id` last.
     pub fn ancestors(&self, id: NodeId) -> Vec<NodeId> {
         let mut v = vec![id];

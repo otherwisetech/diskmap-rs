@@ -87,6 +87,8 @@ pub struct DiskApp {
     github_stars: bool,
     /// Developer projects, shown instead of the treemap while open.
     pub(crate) dev: Option<crate::dev::DevView>,
+    /// The AI panel's side of the window (⌘J).
+    pub(crate) assistant: crate::agent::Assistant,
     _subs: Vec<Subscription>,
 }
 
@@ -133,8 +135,18 @@ impl DiskApp {
             github_stars: crate::settings::Settings::load().github_stars,
             logo: Arc::new(Image::from_bytes(ImageFormat::Png, crate::ICON_PNG.to_vec())),
             dev: None,
+            assistant: crate::agent::Assistant::new(),
             _subs: subs,
         };
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+                if this.update(cx, |this, cx| this.assistant_tick(cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
         if let Some(p) = initial {
             this.start_scan(p, window, cx);
         }
@@ -244,6 +256,10 @@ impl DiskApp {
             _ => return,
         };
         self.start_scan(root, window, cx);
+    }
+
+    pub fn focus_handle(&self) -> FocusHandle {
+        self.focus.clone()
     }
 
     pub fn toast(&mut self, text: String, cx: &mut Context<Self>) {
@@ -463,6 +479,7 @@ impl DiskApp {
             s.language = Some(code.to_string());
             s.save();
             gpui_component::set_locale(code);
+            crate::agent::set_panel_locale(code);
             crate::set_app_menus(cx);
             cx.refresh_windows();
         }
@@ -692,6 +709,9 @@ impl DiskApp {
 impl Render for DiskApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = tokens(cx);
+        if cx.try_global::<otherwise_agent_panel::ui::PanelStyle>().is_none_or(|s| s.dark != t.dark) {
+            cx.set_global(crate::agent::style(&t));
+        }
         if self.placeholder_locale != i18n::locale() {
             self.placeholder_locale = i18n::locale();
             let text = i18n::t!("app.search.placeholder", keys = SEARCH_KEYS);
