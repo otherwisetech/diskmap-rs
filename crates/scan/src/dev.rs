@@ -3,6 +3,8 @@
 //! above them, else the folder holding them) with sizes and the project's last change; plus the
 //! package caches and standalone cargo target folders in the home folder. Never follows
 //! symlinks, counts hard links once. Read-only except [`delete`], which re-checks everything.
+//! Nothing [`crate::safety::protected`] is ever searched, reported or deleted: tool configs and
+//! installs that carry a `node_modules` (`~/.config/opencode`, `~/.vscode-server`…) are not projects.
 use crate::Progress;
 use rayon::prelude::*;
 use std::collections::HashSet;
@@ -29,8 +31,6 @@ pub enum ArtifactKind {
     DerivedData,
     /// A cargo target folder of its own, like `~/.cache/<name>target<…>` (`CARGO_TARGET_DIR`).
     StandaloneTarget,
-    CargoRegistry,
-    CargoGit,
     NpmCache,
     PnpmStore,
     GradleCache,
@@ -47,8 +47,6 @@ impl ArtifactKind {
             ArtifactKind::GradleBuild => "gradle_build",
             ArtifactKind::DerivedData => "derived_data",
             ArtifactKind::StandaloneTarget => "standalone_target",
-            ArtifactKind::CargoRegistry => "cargo_registry",
-            ArtifactKind::CargoGit => "cargo_git",
             ArtifactKind::NpmCache => "npm_cache",
             ArtifactKind::PnpmStore => "pnpm_store",
             ArtifactKind::GradleCache => "gradle_cache",
@@ -57,10 +55,10 @@ impl ArtifactKind {
 
     /// Downloaded packages shared by every project: regenerable, but re-downloading costs.
     pub fn is_download_cache(self) -> bool {
-        matches!(self, ArtifactKind::CargoRegistry | ArtifactKind::CargoGit | ArtifactKind::NpmCache | ArtifactKind::PnpmStore | ArtifactKind::GradleCache)
+        matches!(self, ArtifactKind::NpmCache | ArtifactKind::PnpmStore | ArtifactKind::GradleCache)
     }
 
-    pub const ALL: [ArtifactKind; 12] = [
+    pub const ALL: [ArtifactKind; 10] = [
         ArtifactKind::Target,
         ArtifactKind::NodeModules,
         ArtifactKind::Next,
@@ -68,8 +66,6 @@ impl ArtifactKind {
         ArtifactKind::GradleBuild,
         ArtifactKind::DerivedData,
         ArtifactKind::StandaloneTarget,
-        ArtifactKind::CargoRegistry,
-        ArtifactKind::CargoGit,
         ArtifactKind::NpmCache,
         ArtifactKind::PnpmStore,
         ArtifactKind::GradleCache,
@@ -140,7 +136,8 @@ pub fn classify(dir: &Path) -> Option<ArtifactKind> {
     let name = dir.file_name()?.to_str()?;
     let parent = dir.parent()?;
     match name {
-        "node_modules" => Some(ArtifactKind::NodeModules),
+        // only a project's own install (a `package.json` next to it); global installs aren't
+        "node_modules" if parent.join("package.json").is_file() => Some(ArtifactKind::NodeModules),
         "target" if dir.join("CACHEDIR.TAG").is_file() || has_any(parent, &["Cargo.toml", "pom.xml"]) => Some(ArtifactKind::Target),
         ".next" if parent.join("package.json").is_file() => Some(ArtifactKind::Next),
         ".gradle" if has_any(parent, GRADLE_FILES) => Some(ArtifactKind::Gradle),
@@ -150,14 +147,14 @@ pub fn classify(dir: &Path) -> Option<ArtifactKind> {
     }
 }
 
-/// The caches looked for in the home folder.
+pub use crate::safety::{PROJECT_MARKERS, looks_like_project};
+
+/// The caches looked for in the home folder. Only exact, regenerable cache folders: never a
+/// tool's install or config (`~/.cargo` and `~/.local` hold binaries and settings too).
 pub fn home_caches(home: &Path) -> Vec<(PathBuf, ArtifactKind)> {
     let mut v: Vec<(PathBuf, ArtifactKind)> = [
-        (".cargo/registry", ArtifactKind::CargoRegistry),
-        (".cargo/git", ArtifactKind::CargoGit),
         (".npm/_cacache", ArtifactKind::NpmCache),
         ("Library/pnpm/store", ArtifactKind::PnpmStore),
-        (".local/share/pnpm/store", ArtifactKind::PnpmStore),
         (".pnpm-store", ArtifactKind::PnpmStore),
         ("AppData/Local/pnpm/store", ArtifactKind::PnpmStore),
         ("AppData/Local/npm-cache/_cacache", ArtifactKind::NpmCache),
@@ -173,6 +170,7 @@ pub fn home_caches(home: &Path) -> Vec<(PathBuf, ArtifactKind)> {
         found.sort();
         v.extend(found.into_iter().map(|p| (p, ArtifactKind::StandaloneTarget)));
     }
+    v.retain(|(p, _)| !crate::safety::protected(p, Some(home)));
     v
 }
 
@@ -275,11 +273,12 @@ fn visit(ctx: &Ctx, dir: &Path, depth: usize) -> Found {
             continue;
         }
         let p = e.path();
-        if skipped(&name, at_home) || ctx.skip.contains(&p) {
+        if skipped(&name, at_home) || ctx.skip.contains(&p) || crate::safety::protected_tree(&p, ctx.home.as_deref()) {
             continue;
         }
         match classify(&p) {
-            Some(k) => here.push((p, k)),
+            Some(k) if !looks_like_project(&p) && !crate::safety::protected(&p, ctx.home.as_deref()) => here.push((p, k)),
+            Some(_) => {}
             None if depth < MAX_DEPTH => subdirs.push(p),
             None => {}
         }
@@ -317,6 +316,9 @@ pub fn find(roots: &[PathBuf], home: Option<&Path>, progress: &Progress) -> Repo
     roots.dedup();
     let roots: Vec<PathBuf> = roots.iter().filter(|r| !roots.iter().any(|o| o != *r && r.starts_with(o))).cloned().collect();
     let home = home.and_then(|h| canonical(h).ok());
+    // a protected root (`~/.config`, iCloud Drive…) is not searched; home and ~/Documents are,
+    // with their protected folders left out one by one
+    let roots: Vec<PathBuf> = roots.into_iter().filter(|r| !crate::safety::protected_tree(r, home.as_deref())).collect();
     let ctx = Ctx { progress, home: home.clone(), skip: crate::Options::default().skip, seen: Mutex::new(HashSet::new()) };
     let caches: Vec<(PathBuf, ArtifactKind)> = home.as_deref().map(home_caches).unwrap_or_default().into_iter().filter(|(p, _)| fs::symlink_metadata(p).is_ok_and(|m| m.is_dir())).collect();
     let (found, caches) = rayon::join(|| roots.par_iter().map(|r| visit(&ctx, r, 0)).collect::<Vec<_>>(), || caches.par_iter().map(|(p, k)| measure(&ctx, p, *k)).collect::<Vec<_>>());
@@ -350,6 +352,8 @@ pub fn find(roots: &[PathBuf], home: Option<&Path>, progress: &Progress) -> Repo
 pub enum Refusal {
     /// Not (anymore) a build folder of that kind, a symlink, or outside its project.
     NotArtifact,
+    /// A path diskmap never deletes (tool config or install, hidden home folder, cloud…).
+    Protected,
     /// git tracks files in it, or sees files there that aren't ignored.
     Changed,
     Failed(String),
@@ -365,11 +369,13 @@ pub fn git_ignores_all(root: &Path, path: &Path) -> Option<bool> {
     Some(tracked.is_empty() && status.is_empty())
 }
 
-/// Remove one build folder or cache for good: it is regenerated by building or downloading,
-/// and the Trash would keep the space. Refuses unless `a.path` is still a real directory (not a
-/// symlink, nothing linked on the way) of `a.kind` — a project build folder inside `project`
-/// (and, in a git repository, entirely ignored by git), or exactly one of the home caches.
-pub fn delete(a: &Artifact, project: Option<&Project>, home: Option<&Path>) -> Result<(), Refusal> {
+/// Check one build folder or cache right before it goes, then hand it to `remove` (the app
+/// moves it to the Trash; tests remove temp folders). Refuses anything protected
+/// ([`crate::safety::protected`]) or holding a project marker, and unless `a.path` is still a real
+/// directory (not a symlink, nothing linked on the way) of `a.kind` — a project build folder
+/// inside `project` (and, in a git repository, entirely ignored by git), or exactly one of the
+/// home caches.
+pub fn delete_with(a: &Artifact, project: Option<&Project>, home: Option<&Path>, remove: impl FnOnce(&Path) -> Result<(), String>) -> Result<(), Refusal> {
     let md = fs::symlink_metadata(&a.path).map_err(|e| Refusal::Failed(e.to_string()))?;
     if md.file_type().is_symlink() || !md.is_dir() {
         return Err(Refusal::NotArtifact);
@@ -377,6 +383,10 @@ pub fn delete(a: &Artifact, project: Option<&Project>, home: Option<&Path>) -> R
     let real = canonical(&a.path).map_err(|e| Refusal::Failed(e.to_string()))?;
     if real != a.path {
         return Err(Refusal::NotArtifact);
+    }
+    let home = home.and_then(|h| canonical(h).ok());
+    if crate::safety::protected(&real, home.as_deref()) {
+        return Err(Refusal::Protected);
     }
     match project {
         Some(p) => {
@@ -388,11 +398,11 @@ pub fn delete(a: &Artifact, project: Option<&Project>, home: Option<&Path>) -> R
             }
         }
         None => {
-            let home = home.and_then(|h| canonical(h).ok()).ok_or(Refusal::NotArtifact)?;
+            let home = home.ok_or(Refusal::NotArtifact)?;
             if !home_caches(&home).iter().any(|(p, k)| *p == real && *k == a.kind) {
                 return Err(Refusal::NotArtifact);
             }
         }
     }
-    fs::remove_dir_all(&real).map_err(|e| Refusal::Failed(e.to_string()))
+    remove(&real).map_err(Refusal::Failed)
 }

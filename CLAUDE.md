@@ -6,7 +6,8 @@ Same conventions as genealogy-rs.
 
 ```
 crates/scan   diskmap-scan: walk::scan → Tree (arena, children sorted by size), treemap::layout → Tiles;
-              dev::find → build folders by project + home caches, dev::delete. No UI.
+              dev::find → build folders by project + home caches, dev::delete_with;
+              safety::protected = paths never offered for deletion. No UI.
 crates/i18n   diskmap-i18n: embedded translation catalogs, t!/tn!/tv! macros, i18n guard tests
 crates/app    `diskmap` desktop app (GPUI + gpui-component); otherwise.rs = otherwise-link (links,
               About's other apps, low-space Today feed); storage.rs = `<data root>/diskmap/` +
@@ -21,11 +22,16 @@ crates/app    `diskmap` desktop app (GPUI + gpui-component); otherwise.rs = othe
   change. Untranslatable literals (product name, symbols) end their line with `// i18n-ok`.
   Runtime-built keys need their prefix in `DYNAMIC_PREFIXES` (`app.kind.`, `app.dev.kind.`).
 - Nothing destructive without confirmation: removal goes through the Trash (`trash` crate) after a
-  native prompt. Never add a permanent delete without a second confirmation. The one permanent
-  delete is Developer projects' cleanup of regenerable build folders / caches: an in-app list of
-  every path and size first, then a native prompt; `scan::dev::delete` re-checks kind, symlinks,
-  containment in the project (or the exact home cache path) and, in git repositories, that git
-  ignores everything in it. Tests use temp dirs only; never run it on a real disk while developing.
+  native prompt. No permanent delete anywhere. Developer projects' cleanup lists every path and
+  size in-app, then a native prompt, then `scan::dev::delete_with` (the app passes
+  `trash::delete`) re-checks protection, kind, symlinks, containment in the project (or the exact
+  home cache path) and, in git repositories, that git ignores everything in it. Tests pass a
+  plain remove on temp dirs; never the real home or Trash.
+- **Never offer tool configs, installs or user data for deletion.** Anything that proposes a path
+  to delete — the Dev view, and any AI assistant / MCP tool added later — must only propose
+  `dev::find` results and must check `scan::safety::protected` (hidden home folders, `~/Library`,
+  cloud folders, bundles, system, whole user folders, project roots). Nothing is pre-selected.
+  New exceptions go in `safety::HOME_CACHE_ALLOW` with a row in `crates/scan/tests/safety.rs`.
 - The scanner never follows symlinks and counts hard links once; keep it that way.
 - Every scan/layout change ships with a test (`crates/scan/tests/scan.rs`, `tests/dev.rs`).
 - rama: "Open in rama" uses `otherwise://rama/repo?path=…`; rama's worktrees come from

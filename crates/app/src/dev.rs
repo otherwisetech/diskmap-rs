@@ -1,8 +1,9 @@
 //! Developer projects: build folders (`target/`, `node_modules/`, `.next/`, Gradle, DerivedData)
 //! and package caches found under some roots (`scan::dev::find`), grouped by project with their
-//! last change, "Open in rama" for git repositories and the worktrees rama knows marked. Cleanup
-//! deletes only regenerable folders, after an in-app list of every path and size and a second,
-//! native confirmation; `scan::dev::delete` re-checks each one.
+//! last change, "Open in rama" for git repositories and the worktrees rama knows marked. Nothing
+//! is pre-selected; each row says what it is and why it is safe. Cleanup moves only regenerable
+//! folders to the Trash, after an in-app list of every path and size and a second, native
+//! confirmation; `scan::dev::delete_with` re-checks each one (`scan::safety` exclusions included).
 use crate::app::DiskApp;
 use crate::theme::Tokens;
 use crate::ui::{self, icon};
@@ -20,9 +21,6 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
 
-/// Projects (and build caches) unchanged this long are pre-selected.
-pub const STALE_DAYS: i64 = 14;
-
 pub enum DevState {
     Scanning { progress: Arc<Progress>, started: Instant },
     Ready(Rc<Report>),
@@ -32,7 +30,8 @@ pub struct DevView {
     pub roots: Entity<InputState>,
     pub state: DevState,
     pub selected: HashSet<PathBuf>,
-    pub expanded: HashSet<PathBuf>,
+    /// Projects whose build folders are folded away (all are shown by default).
+    pub collapsed: HashSet<PathBuf>,
     /// Worktree folders rama has listed.
     pub known: HashSet<PathBuf>,
     pub rama: bool,
@@ -74,15 +73,9 @@ fn days_since(t: i64, now: i64) -> i64 {
     if t <= 0 { i64::MAX } else { ((now - t).max(0)) / 86_400 }
 }
 
-/// Pre-selected: build folders of projects untouched for [`STALE_DAYS`] and build caches not
-/// used as long; never package download caches (they cost a download, not a build).
-pub fn default_selection(r: &Report, now: i64) -> HashSet<PathBuf> {
-    let mut s = HashSet::new();
-    for p in r.projects.iter().filter(|p| days_since(p.modified, now) >= STALE_DAYS) {
-        s.extend(p.artifacts.iter().map(|a| a.path.clone()));
-    }
-    s.extend(r.caches.iter().filter(|c| !c.kind.is_download_cache() && days_since(c.modified, now) >= STALE_DAYS).map(|c| c.path.clone()));
-    s
+/// What is ticked when a search finishes: nothing, whatever its age or size. The user picks.
+pub fn default_selection(_: &Report) -> HashSet<PathBuf> {
+    HashSet::new()
 }
 
 /// Every selected folder with the project it belongs to (`None`: a home cache), in list order.
@@ -103,6 +96,13 @@ fn kind_label(k: ArtifactKind) -> String {
     i18n::t!(&format!("app.dev.kind.{}", k.id()))
 }
 
+/// The row's category and what happens if it goes ("regenerated when…").
+fn kind_why(k: ArtifactKind) -> String {
+    let category = if k.is_download_cache() || k == ArtifactKind::DerivedData { i18n::t!("app.dev.cat_cache") } else { i18n::t!("app.dev.cat_build") };
+    let why = i18n::t!(&format!("app.dev.why.{}", k.id()));
+    format!("{category} · {why}") // i18n-ok: separator
+}
+
 fn age(t: i64) -> String {
     match days_since(t, now()) {
         i64::MAX => String::new(),
@@ -116,7 +116,7 @@ impl DiskApp {
         if self.dev.is_none() {
             let text = load_roots().iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ");
             let roots = cx.new(|cx| InputState::new(window, cx).default_value(text));
-            self.dev = Some(DevView { roots, state: DevState::Ready(Rc::new(Report::default())), selected: HashSet::new(), expanded: HashSet::new(), known: HashSet::new(), rama: false, confirm: false, running: false, result: None, generation: 0 });
+            self.dev = Some(DevView { roots, state: DevState::Ready(Rc::new(Report::default())), selected: HashSet::new(), collapsed: HashSet::new(), known: HashSet::new(), rama: false, confirm: false, running: false, result: None, generation: 0 });
             self.scan_dev(cx);
         }
         cx.notify();
@@ -166,7 +166,7 @@ impl DiskApp {
                         let _ = crate::otherwise::publish_today(&otherwise_link::Root::system());
                     });
                 }
-                d.selected = default_selection(&report, now());
+                d.selected = default_selection(&report);
                 d.known = known;
                 d.rama = rama;
                 d.state = DevState::Ready(Rc::new(report));
@@ -242,9 +242,10 @@ impl DiskApp {
                     let mut freed = 0;
                     let mut skipped = Vec::new();
                     for (a, p) in &items {
-                        match dev::delete(a, p.as_ref(), Some(&home)) {
+                        match dev::delete_with(a, p.as_ref(), Some(&home), |x| trash::delete(x).map_err(|e| e.to_string())) {
                             Ok(()) => freed += a.bytes,
                             Err(Refusal::NotArtifact) => skipped.push((a.path.clone(), i18n::t!("app.dev.skip_not_artifact"))),
+                            Err(Refusal::Protected) => skipped.push((a.path.clone(), i18n::t!("app.dev.skip_protected"))),
                             Err(Refusal::Changed) => skipped.push((a.path.clone(), i18n::t!("app.dev.skip_changed"))),
                             Err(Refusal::Failed(e)) => skipped.push((a.path.clone(), e)),
                         }
@@ -354,23 +355,22 @@ impl DiskApp {
         }
         let row_artifact = |a: &Artifact, rel: String, on: bool, i: usize, cx: &mut Context<Self>| {
             let path = a.path.clone();
-            div()
+            let line = div()
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .pl(px(28.))
-                .py(px(2.))
                 .child(Checkbox::new(("dev-art", i)).checked(on).on_click(cx.listener(move |this, on: &bool, _, cx| this.dev_toggle(vec![path.clone()], *on, cx))))
                 .child(div().flex_none().w(px(150.)).text_size(px(12.)).child(kind_label(a.kind)))
                 .child(div().flex_1().min_w_0().truncate().text_size(px(11.5)).text_color(t.ink_muted).child(rel))
                 .child(div().flex_none().w(px(110.)).text_size(px(11.5)).text_color(t.ink_muted).child(age(a.modified)))
-                .child(div().flex_none().w(px(80.)).text_right().text_size(px(12.5)).child(human(a.bytes)))
+                .child(div().flex_none().w(px(80.)).text_right().text_size(px(12.5)).child(human(a.bytes)));
+            div().flex().flex_col().pl(px(28.)).py(px(2.)).child(line).child(div().pl(px(26.)).text_size(px(11.)).line_height(px(15.)).text_color(t.ink_muted).child(kind_why(a.kind)))
         };
         let mut n = 0usize;
         for (pi, p) in report.projects.iter().enumerate() {
             let paths: Vec<PathBuf> = p.artifacts.iter().map(|a| a.path.clone()).collect();
             let all = paths.iter().all(|x| d.selected.contains(x));
-            let open = d.expanded.contains(&p.root);
+            let open = !d.collapsed.contains(&p.root);
             let name = p.root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.root.display().to_string());
             let chip = |text: String, c: Hsla| div().flex_none().px(px(6.)).rounded(px(5.)).bg(c.opacity(0.14)).text_color(c).text_size(px(10.5)).child(text);
             let root = p.root.clone();
@@ -397,12 +397,12 @@ impl DiskApp {
                         .when(p.worktree, |d| d.child(chip(i18n::t!("app.dev.worktree"), t.accent)))
                         .when(p.git && !p.worktree, |d| d.child(chip(i18n::t!("app.dev.git"), t.ink_muted)))
                         .when(d.known.contains(&p.root), |d| d.child(chip(i18n::t!("app.dev.in_rama"), t.brand)))
-                        .child(div().flex_1().min_w_0().truncate().text_size(px(11.5)).text_color(t.ink_muted).child(p.root.display().to_string()))
+                        .child(div().flex_1().min_w_0().truncate().text_size(px(11.5)).text_color(t.ink_muted).child(i18n::t!("app.dev.only_builds", path = p.root.display())))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(d) = this.dev.as_mut()
-                                && !d.expanded.remove(&toggle_root)
+                                && !d.collapsed.remove(&toggle_root)
                             {
-                                d.expanded.insert(toggle_root.clone());
+                                d.collapsed.insert(toggle_root.clone());
                             }
                             cx.notify();
                         })),
@@ -525,19 +525,19 @@ mod tests {
     }
 
     #[test]
-    fn selection_and_plan_are_stable() {
+    fn nothing_is_pre_selected_and_plan_is_stable() {
         let now = 1_800_000_000;
-        let old = now - 30 * 86_400;
+        let old = now - 400 * 86_400;
         let r = Report {
             projects: vec![
                 Project { root: "/c/old".into(), git: true, worktree: false, modified: old, artifacts: vec![art("/c/old/target", ArtifactKind::Target, 10, old), art("/c/old/node_modules", ArtifactKind::NodeModules, 5, old)], bytes: 15 },
                 Project { root: "/c/new".into(), git: true, worktree: true, modified: now - 3600, artifacts: vec![art("/c/new/target", ArtifactKind::Target, 50, now)], bytes: 50 },
             ],
-            caches: vec![art("/h/.cache/x-target", ArtifactKind::StandaloneTarget, 40, old), art("/h/.cargo/registry", ArtifactKind::CargoRegistry, 30, old), art("/h/.cache/y-target", ArtifactKind::StandaloneTarget, 40, now)],
+            caches: vec![art("/h/.cache/x-target", ArtifactKind::StandaloneTarget, 40, old), art("/h/.npm/_cacache", ArtifactKind::NpmCache, 30, old)],
         };
-        let sel = default_selection(&r, now);
-        let want: HashSet<PathBuf> = ["/c/old/target", "/c/old/node_modules", "/h/.cache/x-target"].iter().map(PathBuf::from).collect();
-        assert_eq!(sel, want, "recent projects and download caches are not pre-selected");
+        assert!(default_selection(&r).is_empty(), "the user ticks every folder; none is pre-selected, however old or large");
+        assert!(plan(&r, &default_selection(&r)).is_empty());
+        let sel: HashSet<PathBuf> = ["/c/old/target", "/c/old/node_modules", "/h/.cache/x-target"].iter().map(PathBuf::from).collect();
         let p = plan(&r, &sel);
         let order: Vec<&Path> = p.iter().map(|(a, _)| a.path.as_path()).collect();
         assert_eq!(order, [Path::new("/c/old/target"), Path::new("/c/old/node_modules"), Path::new("/h/.cache/x-target")]);
