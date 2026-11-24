@@ -24,12 +24,17 @@ UI in Spanish, English, Portuguese and French.
   folders under your home folder (or the folders you list) — `target/` of cargo / maven,
   `node_modules/`, `.next/`, Gradle's `.gradle/` and `build/`, Xcode's `DerivedData` — groups
   them by project (the git root above them) with size and when the project last changed, and
-  lists package caches (cargo registry, npm, pnpm, Gradle) and standalone cargo target folders
-  such as `~/.cache/<app>-target`. Folders of projects untouched for 14 days are pre-selected
-  (download caches never are). Deleting lists every path and size, says it bypasses the Trash
-  (they're regenerable, and the Trash would keep the space), and asks a second time; each folder
-  is checked again right before (still that kind of build folder, not a link, and in a git
-  repository ignored entirely by git). With [rama](https://github.com/otherwisetech/rama-rs)
+  lists a few exact caches (npm, pnpm, Gradle) and standalone cargo target folders such as
+  `~/.cache/<app>-target`. Each row says what it is and what happens if it goes. **Nothing is
+  pre-selected.** Never offered, by any rule: tool settings and installs (every hidden folder in
+  your home — `~/.config`, `~/.local`, `~/.claude`, `~/.codex`, `~/.opencode`, `~/.vscode-server`,
+  `~/.cargo`, `~/.nvm`, `~/.ssh`… — except those exact caches), `~/Library` (except Xcode's
+  DerivedData and pnpm's store), cloud folders (iCloud Drive, OneDrive, Dropbox…), app bundles,
+  system folders, whole user folders (Documents, Downloads…) and projects themselves — only build
+  folders inside them, and `node_modules` only next to a `package.json`. Cleanup moves the
+  folders to the Trash after listing every path and size and asking a second time; each folder
+  is checked again right before (still that kind of build folder, not protected, not a link,
+  and in a git repository ignored entirely by git). With [rama](https://github.com/otherwisetech/rama-rs)
   installed, git projects get *Open in rama* and the worktrees rama knows are marked.
 
 ## Download

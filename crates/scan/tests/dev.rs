@@ -23,6 +23,11 @@ fn empty_config() -> PathBuf {
     f
 }
 
+/// The cleanup with a plain remove: tests never touch the real Trash.
+fn del(a: &dev::Artifact, p: Option<&dev::Project>, home: Option<&Path>) -> Result<(), Refusal> {
+    dev::delete_with(a, p, home, |x| fs::remove_dir_all(x).map_err(|e| e.to_string()))
+}
+
 fn tmp() -> (tempfile::TempDir, PathBuf) {
     let d = tempfile::tempdir().unwrap();
     let p = dev::canonical(d.path()).unwrap();
@@ -46,6 +51,7 @@ fn sample(home: &Path) {
     write(&home.join("code/notes/build/keep.txt"), 9_000);
     write(&home.join("code/notes/target/keep.txt"), 9_000);
     write(&home.join(".cargo/registry/cache/x.crate"), 70_000);
+    write(&home.join(".npm/_cacache/index/x"), 60_000);
     write(&home.join(".cache/app-target/CACHEDIR.TAG"), 10);
     write(&home.join(".cache/app-target/debug/x"), 80_000);
     write(&home.join(".cache/not-a-target/x"), 80_000);
@@ -70,7 +76,8 @@ fn finds_build_folders_grouped_by_project() {
     assert!(!loose.git);
     assert_eq!(loose.artifacts.iter().map(|a| a.kind).collect::<Vec<_>>(), [ArtifactKind::GradleBuild, ArtifactKind::Gradle]);
     let caches: Vec<(ArtifactKind, PathBuf)> = r.caches.iter().map(|c| (c.kind, c.path.clone())).collect();
-    assert_eq!(caches, [(ArtifactKind::StandaloneTarget, home.join(".cache/app-target")), (ArtifactKind::CargoRegistry, home.join(".cargo/registry"))]);
+    // ~/.cargo holds binaries and settings next to its registry: never offered
+    assert_eq!(caches, [(ArtifactKind::StandaloneTarget, home.join(".cache/app-target")), (ArtifactKind::NpmCache, home.join(".npm/_cacache"))]);
     assert!(r.total() > r.build_bytes() && r.build_bytes() >= app.bytes + loose.bytes);
     // a root inside another is searched once; the same report comes back
     let again = dev::find(&[home.join("code"), home.clone()], Some(&home), &Progress::default());
@@ -89,7 +96,7 @@ fn worktrees_are_projects_of_their_own() {
     write(&main.join("target/CACHEDIR.TAG"), 10);
     write(&main.join(".worktrees/wt/target/CACHEDIR.TAG"), 10);
     write(&main.join(".worktrees/wt/target/x"), 20_000);
-    let r = dev::find(std::slice::from_ref(&home), None, &Progress::default());
+    let r = dev::find(std::slice::from_ref(&home), Some(&home), &Progress::default());
     let wt = r.projects.iter().find(|p| p.root.ends_with("wt")).unwrap();
     assert!(wt.git && wt.worktree);
     let m = r.projects.iter().find(|p| p.root == main).unwrap();
@@ -110,67 +117,73 @@ fn delete_refuses_anything_but_ignored_build_folders() {
     let p = r.projects.iter().find(|p| p.root == app).unwrap().clone();
     let art = |k: ArtifactKind| p.artifacts.iter().find(|a| a.kind == k).unwrap().clone();
     // node_modules isn't ignored here: git sees it, so it stays
-    assert_eq!(dev::delete(&art(ArtifactKind::NodeModules), Some(&p), Some(&home)), Err(Refusal::Changed));
+    assert_eq!(del(&art(ArtifactKind::NodeModules), Some(&p), Some(&home)), Err(Refusal::Changed));
     assert!(app.join("web/node_modules/a/index.js").exists());
     // a path that isn't a build folder of that kind, or outside the project
     let mut fake = art(ArtifactKind::Target);
     fake.path = app.join("src");
-    assert_eq!(dev::delete(&fake, Some(&p), Some(&home)), Err(Refusal::NotArtifact));
+    assert_eq!(del(&fake, Some(&p), Some(&home)), Err(Refusal::NotArtifact));
     let mut outside = art(ArtifactKind::Target);
     outside.path = home.join("code/notes/target");
-    assert_eq!(dev::delete(&outside, Some(&p), Some(&home)), Err(Refusal::NotArtifact));
+    assert_eq!(del(&outside, Some(&p), Some(&home)), Err(Refusal::NotArtifact));
     let mut wrong_kind = art(ArtifactKind::Target);
     wrong_kind.kind = ArtifactKind::NodeModules;
-    assert_eq!(dev::delete(&wrong_kind, Some(&p), Some(&home)), Err(Refusal::NotArtifact));
+    assert_eq!(del(&wrong_kind, Some(&p), Some(&home)), Err(Refusal::NotArtifact));
     #[cfg(unix)]
     {
         // a symlink where the folder was is never followed
         let t = art(ArtifactKind::Target);
         fs::rename(&t.path, app.join("moved")).unwrap();
         std::os::unix::fs::symlink(app.join("moved"), &t.path).unwrap();
-        assert_eq!(dev::delete(&t, Some(&p), Some(&home)), Err(Refusal::NotArtifact));
+        assert_eq!(del(&t, Some(&p), Some(&home)), Err(Refusal::NotArtifact));
         assert!(app.join("moved/debug/big.rlib").exists());
         fs::remove_file(&t.path).unwrap();
         fs::rename(app.join("moved"), &t.path).unwrap();
     }
     // ignored target/: goes, sources stay
-    dev::delete(&art(ArtifactKind::Target), Some(&p), Some(&home)).unwrap();
+    del(&art(ArtifactKind::Target), Some(&p), Some(&home)).unwrap();
     assert!(!app.join("target").exists() && app.join("src/main.rs").exists() && app.join("Cargo.toml").exists());
     // a committed build folder stays even when ignored
     fs::write(app.join(".gitignore"), "target/\nnode_modules/\n.next/\n").unwrap();
     git(&app, &["add", "-f", "web/.next"]);
     git(&app, &["commit", "-q", "-m", "next"]);
-    assert_eq!(dev::delete(&art(ArtifactKind::Next), Some(&p), Some(&home)), Err(Refusal::Changed));
-    dev::delete(&art(ArtifactKind::NodeModules), Some(&p), Some(&home)).unwrap();
+    assert_eq!(del(&art(ArtifactKind::Next), Some(&p), Some(&home)), Err(Refusal::Changed));
+    del(&art(ArtifactKind::NodeModules), Some(&p), Some(&home)).unwrap();
 
     // non-git project: name rules only
     let loose = r.projects.iter().find(|p| !p.git).unwrap();
-    dev::delete(&loose.artifacts[0], Some(loose), Some(&home)).unwrap();
+    del(&loose.artifacts[0], Some(loose), Some(&home)).unwrap();
     assert!(home.join("code/loose/build.gradle").exists());
 
     // caches: only the exact known folders
-    let reg = r.caches.iter().find(|c| c.kind == ArtifactKind::CargoRegistry).unwrap();
+    let reg = r.caches.iter().find(|c| c.kind == ArtifactKind::NpmCache).unwrap();
     let mut other = reg.clone();
     other.path = home.join(".cache/not-a-target");
-    assert_eq!(dev::delete(&other, None, Some(&home)), Err(Refusal::NotArtifact));
-    assert_eq!(dev::delete(reg, None, None), Err(Refusal::NotArtifact));
-    dev::delete(reg, None, Some(&home)).unwrap();
-    assert!(!home.join(".cargo/registry").exists());
+    // hidden home folders other than the exact caches are protected; without a home, all are
+    assert_eq!(del(&other, None, Some(&home)), Err(Refusal::Protected));
+    assert_eq!(del(reg, None, None), Err(Refusal::Protected));
+    del(reg, None, Some(&home)).unwrap();
+    assert!(!home.join(".npm/_cacache").exists() && home.join(".cargo/registry/cache/x.crate").exists());
+    // ~/.cargo/registry passed off as a cache is refused
+    let mut cargo = reg.clone();
+    cargo.path = home.join(".cargo/registry");
+    assert_eq!(del(&cargo, None, Some(&home)), Err(Refusal::Protected));
     let st = r.caches.iter().find(|c| c.kind == ArtifactKind::StandaloneTarget).unwrap();
-    dev::delete(st, None, Some(&home)).unwrap();
+    del(st, None, Some(&home)).unwrap();
     assert!(home.join(".cache/not-a-target/x").exists());
 }
 
 #[test]
 fn classify_needs_the_files_next_to_it() {
     let (_d, p) = tmp();
-    for d in ["a/target", "b/target", "c/.next", "d/build", "e/build", "f/.gradle", "g/node_modules"] {
+    for d in ["a/target", "b/target", "c/.next", "d/build", "e/build", "f/.gradle", "g/node_modules", "h/node_modules"] {
         fs::create_dir_all(p.join(d)).unwrap();
     }
     write(&p.join("a/Cargo.toml"), 1);
     write(&p.join("c/package.json"), 1);
     write(&p.join("d/build.gradle.kts"), 1);
     write(&p.join("f/settings.gradle"), 1);
+    write(&p.join("h/package.json"), 1);
     let k = |d: &str| dev::classify(&p.join(d));
     assert_eq!(k("a/target"), Some(ArtifactKind::Target));
     assert_eq!(k("b/target"), None);
@@ -178,5 +191,6 @@ fn classify_needs_the_files_next_to_it() {
     assert_eq!(k("d/build"), Some(ArtifactKind::GradleBuild));
     assert_eq!(k("e/build"), None);
     assert_eq!(k("f/.gradle"), Some(ArtifactKind::Gradle));
-    assert_eq!(k("g/node_modules"), Some(ArtifactKind::NodeModules));
+    assert_eq!(k("g/node_modules"), None, "a global install, not a project's");
+    assert_eq!(k("h/node_modules"), Some(ArtifactKind::NodeModules));
 }

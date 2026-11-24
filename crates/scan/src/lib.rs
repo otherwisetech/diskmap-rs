@@ -4,6 +4,7 @@
 //! - [`treemap::layout`] turns a subtree into nested squarified [`treemap::Tile`]s.
 pub mod dev;
 pub mod kind;
+pub mod safety;
 pub mod search;
 pub mod treemap;
 pub mod tree;
