@@ -304,7 +304,7 @@ impl DiskApp {
                     .child(div().flex_1().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child(i18n::t!("app.dev.title")))
                     .child(ui::icon_button(t, "dev-close", IconName::Close, true).on_click(cx.listener(|this, _, _, cx| this.close_dev(cx)))),
             )
-            .child(div().text_size(px(12.5)).line_height(px(18.)).text_color(t.ink_muted).child(i18n::t!("app.dev.subtitle")))
+            .child(div().text_size(px(13.)).line_height(px(18.)).text_color(t.ink_muted).child(i18n::t!("app.dev.subtitle")))
             .child(
                 div()
                     .flex()
@@ -323,7 +323,7 @@ impl DiskApp {
                 .justify_center()
                 .gap(px(10.))
                 .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).child(i18n::t!("app.dev.scanning")))
-                .child(div().text_size(px(12.5)).text_color(t.ink_muted).child(i18n::t!("app.dev.scanning_stats", dirs = crate::app::group(progress.dirs.load(Relaxed)), size = human(progress.bytes.load(Relaxed)), secs = format!("{:.0}", started.elapsed().as_secs_f32()))))
+                .child(div().text_size(px(13.)).text_color(t.ink_muted).child(i18n::t!("app.dev.scanning_stats", dirs = crate::app::group(progress.dirs.load(Relaxed)), size = human(progress.bytes.load(Relaxed)), secs = format!("{:.0}", started.elapsed().as_secs_f32()))))
                 .child(ui::outline_button(t, "dev-stop").child(i18n::t!("common.cancel")).on_click(cx.listener(|this, _, _, cx| {
                     if let Some(DevState::Scanning { progress, .. }) = this.dev.as_ref().map(|d| &d.state) {
                         progress.cancel.store(true, Relaxed);
@@ -345,7 +345,7 @@ impl DiskApp {
         if let Some((freed, skipped)) = &d.result {
             let mut note = div().flex().flex_col().gap(px(4.)).p(px(12.)).mb(px(8.)).rounded(px(10.)).bg(t.accent_soft).child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).child(i18n::t!("app.dev.freed", size = human(*freed))));
             for (p, why) in skipped {
-                note = note.child(div().text_size(px(11.5)).text_color(t.ink_muted).child(i18n::t!("app.dev.skipped", path = p.display(), why = why)));
+                note = note.child(div().text_size(px(12.)).text_color(t.ink_muted).child(i18n::t!("app.dev.skipped", path = p.display(), why = why)));
             }
             list = list.child(note);
         }
@@ -361,9 +361,9 @@ impl DiskApp {
                 .gap(px(8.))
                 .child(Checkbox::new(("dev-art", i)).checked(on).on_click(cx.listener(move |this, on: &bool, _, cx| this.dev_toggle(vec![path.clone()], *on, cx))))
                 .child(div().flex_none().w(px(150.)).text_size(px(12.)).child(kind_label(a.kind)))
-                .child(div().flex_1().min_w_0().truncate().text_size(px(11.5)).text_color(t.ink_muted).child(rel))
-                .child(div().flex_none().w(px(110.)).text_size(px(11.5)).text_color(t.ink_muted).child(age(a.modified)))
-                .child(div().flex_none().w(px(80.)).text_right().text_size(px(12.5)).child(human(a.bytes)));
+                .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(t.ink_muted).child(rel))
+                .child(div().flex_none().w(px(110.)).text_size(px(12.)).text_color(t.ink_muted).child(age(a.modified)))
+                .child(div().flex_none().w(px(80.)).text_right().text_size(px(13.)).child(human(a.bytes)));
             div().flex().flex_col().pl(px(28.)).py(px(2.)).child(line).child(div().pl(px(26.)).text_size(px(11.)).line_height(px(15.)).text_color(t.ink_muted).child(kind_why(a.kind)))
         };
         let mut n = 0usize;
@@ -397,7 +397,7 @@ impl DiskApp {
                         .when(p.worktree, |d| d.child(chip(i18n::t!("app.dev.worktree"), t.accent)))
                         .when(p.git && !p.worktree, |d| d.child(chip(i18n::t!("app.dev.git"), t.ink_muted)))
                         .when(d.known.contains(&p.root), |d| d.child(chip(i18n::t!("app.dev.in_rama"), t.brand)))
-                        .child(div().flex_1().min_w_0().truncate().text_size(px(11.5)).text_color(t.ink_muted).child(i18n::t!("app.dev.only_builds", path = p.root.display())))
+                        .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(t.ink_muted).child(i18n::t!("app.dev.only_builds", path = p.root.display())))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(d) = this.dev.as_mut()
                                 && !d.collapsed.remove(&toggle_root)
@@ -407,14 +407,14 @@ impl DiskApp {
                             cx.notify();
                         })),
                 )
-                .child(div().flex_none().w(px(110.)).text_size(px(11.5)).text_color(t.ink_muted).child(age(p.modified)));
+                .child(div().flex_none().w(px(110.)).text_size(px(12.)).text_color(t.ink_muted).child(age(p.modified)));
             if d.rama && p.git {
                 let r = root.clone();
-                row = row.child(ui::outline_button(t, ("dev-rama", pi)).h(px(24.)).px(px(8.)).text_size(px(11.5)).child(i18n::t!("app.dev.open_rama")).on_click(cx.listener(move |this, _, _, cx| this.open_rama(r.clone(), cx))));
+                row = row.child(ui::outline_button(t, ("dev-rama", pi)).h(px(24.)).px(px(8.)).text_size(px(12.)).child(i18n::t!("app.dev.open_rama")).on_click(cx.listener(move |this, _, _, cx| this.open_rama(r.clone(), cx))));
             }
             let s = root.clone();
             row = row
-                .child(ui::outline_button(t, ("dev-show", pi)).h(px(24.)).px(px(8.)).text_size(px(11.5)).child(i18n::t!("app.dev.show")).on_click(cx.listener(move |this, _, window, cx| {
+                .child(ui::outline_button(t, ("dev-show", pi)).h(px(24.)).px(px(8.)).text_size(px(12.)).child(i18n::t!("app.dev.show")).on_click(cx.listener(move |this, _, window, cx| {
                     this.close_dev(cx);
                     this.start_scan(s.clone(), window, cx);
                 })))
@@ -429,7 +429,7 @@ impl DiskApp {
             }
         }
         if !report.caches.is_empty() {
-            list = list.child(div().pt(px(16.)).pb(px(4.)).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).child(i18n::t!("app.dev.caches"))).child(div().pb(px(4.)).text_size(px(11.5)).text_color(t.ink_muted).child(i18n::t!("app.dev.caches_hint")));
+            list = list.child(div().pt(px(16.)).pb(px(4.)).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).child(i18n::t!("app.dev.caches"))).child(div().pb(px(4.)).text_size(px(12.)).text_color(t.ink_muted).child(i18n::t!("app.dev.caches_hint")));
             for c in &report.caches {
                 list = list.child(row_artifact(c, c.path.display().to_string(), d.selected.contains(&c.path), n, cx));
                 n += 1;
@@ -448,7 +448,7 @@ impl DiskApp {
             .border_t_1()
             .border_color(t.border)
             .bg(t.surface)
-            .child(div().flex_1().text_size(px(12.5)).text_color(t.ink_muted).child(i18n::tn!("app.dev.selected", items.len() as u64, size = human(sel))))
+            .child(div().flex_1().text_size(px(13.)).text_color(t.ink_muted).child(i18n::tn!("app.dev.selected", items.len() as u64, size = human(sel))))
             .child(
                 ui::filled_button(t, "dev-delete", t.danger)
                     .child(if d.running { i18n::t!("app.dev.deleting") } else { i18n::t!("app.dev.delete", size = human(sel)) })
@@ -493,7 +493,7 @@ impl DiskApp {
             .shadow_lg()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child(i18n::tn!("app.dev.confirm_title", items.len() as u64, size = human(sel))))
-            .child(div().text_size(px(12.5)).line_height(px(18.)).text_color(t.ink_muted).child(i18n::t!("app.dev.confirm_how")))
+            .child(div().text_size(px(13.)).line_height(px(18.)).text_color(t.ink_muted).child(i18n::t!("app.dev.confirm_how")))
             .child(div().id("dev-confirm-paths").flex_1().min_h(px(80.)).max_h(px(320.)).overflow_y_scroll().p(px(8.)).rounded(px(6.)).bg(t.canvas).text_size(px(11.)).line_height(px(15.)).font_family("Menlo").child(lines)) // i18n-ok: font
             .child(div().text_size(px(12.)).line_height(px(17.)).text_color(t.ink_muted).child(i18n::t!("app.dev.confirm_safe")))
             .child(

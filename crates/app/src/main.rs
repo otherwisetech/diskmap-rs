@@ -28,8 +28,8 @@ use std::path::PathBuf;
 actions!(diskmap, [Quit, OpenWebsite, ShowAbout, OpenVcity, RevealData]);
 
 pub(crate) const APP_NAME: &str = "diskmap"; // i18n-ok: product name
-pub(crate) const COMPANY: &str = "Otherwise Technologies LLC"; // i18n-ok: company name
-pub(crate) const COMPANY_URL: &str = "https://otherwisetech.com";
+pub(crate) const COMPANY: &str = otherwise_ui::COMPANY;
+pub(crate) const COMPANY_URL: &str = otherwise_ui::COMPANY_URL;
 pub(crate) const REPO_URL: &str = env!("CARGO_PKG_REPOSITORY");
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -101,12 +101,6 @@ fn set_dock_icon() {
     }
 }
 
-const FONTS: [&[u8]; 3] = [
-    include_bytes!("../assets/fonts/Inter-Regular.ttf"),
-    include_bytes!("../assets/fonts/Inter-Medium.ttf"),
-    include_bytes!("../assets/fonts/Inter-SemiBold.ttf"),
-];
-
 fn scan_path(a: otherwise::Action) -> Option<PathBuf> {
     match a {
         otherwise::Action::Scan(p) => Some(p),
@@ -128,15 +122,13 @@ fn main() {
     let application = gpui_platform::application().with_assets(AppAssets);
     application.on_open_urls(inbox::send_urls);
     application.run(move |cx| {
-        if let Err(e) = cx.text_system().add_fonts(FONTS.iter().map(|f| Cow::Borrowed(*f)).collect()) {
-            eprintln!("fonts: {e}");
-        }
         #[cfg(target_os = "macos")]
         {
             set_dock_icon();
             services::register();
         }
         gpui_component::init(cx);
+        otherwise_ui::init(otherwise_ui::accents::DISKMAP, cx);
         app::sync_theme(None, cx);
         app::bind_keys(cx);
         cx.bind_keys([KeyBinding::new("secondary-q", Quit, None)]);

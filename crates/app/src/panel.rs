@@ -76,8 +76,8 @@ impl DiskApp {
                         .flex()
                         .gap(px(6.))
                         .text_size(px(12.))
-                        .text_color(t.warning)
-                        .child(icon(IconName::TriangleAlert, 14., t.warning).flex_none())
+                        .text_color(t.warn)
+                        .child(icon(IconName::TriangleAlert, 14., t.warn).flex_none())
                         .child(div().flex_1().child(if is_root { i18n::tn!("app.panel.unreadable_some", errors) } else { i18n::t!("app.panel.unreadable") })),
                 )
             })
