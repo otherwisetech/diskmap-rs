@@ -43,6 +43,12 @@ crates/app    `diskmap` desktop app (GPUI + gpui-component); otherwise.rs = othe
 - GPUI pins: `Cargo.lock` pins the same zed / gpui-component revs as genealogy-rs. Don't
   `cargo update` them casually: APIs move.
 
+## Release
+
+Releases stay in this repo (`gh release create vX.Y.Z` with each file and its `.sha256`).
+Notes, file names and issue forms follow the family's release rules: otherwisetech/otherwise-apps
+`docs/releases.md` (how the Hub discovers and verifies releases).
+
 ## Validate
 
 ```
