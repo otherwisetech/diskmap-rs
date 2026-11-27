@@ -6,7 +6,7 @@ use gpui::*;
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
-use gpui_component::{IconName, Sizable as _, Theme};
+use gpui_component::{IconName, Sizable as _};
 use scan::treemap::Tile;
 use scan::{NodeId, Options, Progress, Tree, human};
 use std::cell::Cell;
@@ -40,9 +40,9 @@ pub fn bind_keys(cx: &mut App) {
     ]);
 }
 
+/// Follows the system's light / dark appearance and sets the family font on gpui-component.
 pub(crate) fn sync_theme(window: Option<&mut Window>, cx: &mut App) {
-    Theme::sync_system_appearance(window, cx);
-    Theme::global_mut(cx).font_family = SANS.into();
+    otherwise_ui::apply(otherwise_ui::Appearance::System, window, cx);
 }
 
 pub enum Phase {
@@ -515,7 +515,7 @@ impl DiskApp {
         let current = i18n::locale();
         let weak = cx.entity().downgrade();
         let stars_on = self.github_stars;
-        let lang = Button::new("lang").ghost().icon(IconName::Globe).with_size(px(34.)).tooltip(i18n::t!("common.language")).dropdown_menu_with_anchor(Anchor::TopRight, move |mut menu, _, _| {
+        let lang = Button::new("lang").ghost().icon(IconName::Globe).with_size(px(otherwise_ui::tokens::size::CONTROL)).tooltip(i18n::t!("common.language")).dropdown_menu_with_anchor(Anchor::TopRight, move |mut menu, _, _| {
             menu = menu.label(i18n::t!("common.language"));
             for (code, name) in i18n::available() {
                 let w = weak.clone();
@@ -539,13 +539,13 @@ impl DiskApp {
             .flex()
             .flex_none()
             .items_center()
-            .gap(px(8.))
-            .h(px(52.))
-            .px(px(12.))
+            .gap(px(otherwise_ui::tokens::space::S4))
+            .h(px(otherwise_ui::tokens::size::HEADER))
+            .px(px(otherwise_ui::tokens::space::S8))
             .border_b_1()
             .border_color(t.border)
             .bg(t.surface)
-            .child(div().flex().flex_none().items_center().justify_center().size(px(30.)).rounded(px(8.)).bg(t.brand).child(svg().path(crate::LOGO_SVG).size(px(16.)).text_color(gpui::white())))
+            .child(otherwise_ui::logo_badge(t, otherwise_ui::logo_mark(crate::LOGO_SVG)))
             .child(ui::icon_button(t, "up", IconName::ArrowUp, can_up).when(can_up, |d| d.on_click(cx.listener(|this, _, _, cx| this.zoom_out(cx)))))
             .child(crumbs)
             .children(total)
@@ -685,7 +685,7 @@ impl DiskApp {
 
     fn render_toast(&self, t: &Tokens) -> Option<impl IntoElement> {
         let (text, _) = self.toast.as_ref()?;
-        Some(div().absolute().bottom(px(40.)).left_0().right_0().flex().justify_center().child(div().px(px(16.)).py(px(10.)).rounded(px(12.)).bg(t.ink).text_color(t.on_fill()).text_size(px(13.)).child(text.clone())))
+        Some(div().absolute().bottom(px(40.)).left_0().right_0().flex().justify_center().child(otherwise_ui::toast(t, text.clone())))
     }
 }
 
@@ -767,7 +767,8 @@ impl Render for DiskApp {
             .text_color(t.ink)
             .font_family(SANS)
             .child(self.render_topbar(&t, cx))
-            .child(div().relative().flex_1().min_h_0().child(body).when(!ready, |d| d.child(div().absolute().bottom(px(18.)).left_0().right_0().flex().justify_center().child(self.render_footer(&t, "footer", cx)))))
+            .child(div().relative().flex_1().min_h_0().child(body))
+            .when(!ready, |d| d.child(self.render_footer(&t, otherwise_ui::privacy_note(&t, i18n::t!("app.privacy.local"), None), cx)))
             .children(self.render_toast(&t))
             .when(about, |d| d.child(self.render_about(&t, cx)))
     }

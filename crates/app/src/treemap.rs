@@ -154,17 +154,7 @@ impl DiskApp {
             }
             _ => i18n::t!("app.status.hint", copy = crate::app::COPY_KEYS),
         };
-        div()
-            .flex_none()
-            .h(px(26.))
-            .px(px(12.))
-            .flex()
-            .items_center()
-            .gap(px(16.))
-            .text_size(px(12.))
-            .text_color(t.ink_muted)
-            .child(div().flex_1().min_w_0().truncate().child(text))
-            .child(self.render_footer(t, "footer", cx))
+        self.render_footer(t, div().truncate().child(text), cx)
     }
 }
 
