@@ -104,7 +104,7 @@ fn set_dock_icon() {
 fn scan_path(a: otherwise::Action) -> Option<PathBuf> {
     match a {
         otherwise::Action::Scan(p) => Some(p),
-        otherwise::Action::Focus | otherwise::Action::Dev => None,
+        otherwise::Action::Focus | otherwise::Action::Dev(_) => None,
     }
 }
 
@@ -148,15 +148,16 @@ fn main() {
         let inbox = inbox::receiver();
         // A folder that arrived during launch (Finder service, `open -a diskmap <dir>`) wins over argv.
         let launched: Vec<otherwise::Action> = std::iter::from_fn(|| inbox.try_recv().ok()).collect();
-        let want_dev = launched.contains(&otherwise::Action::Dev) || initial == Some(otherwise::Action::Dev);
+        let dev_of = |a: &otherwise::Action| if let otherwise::Action::Dev(repo) = a { Some(repo.clone()) } else { None };
+        let want_dev = launched.iter().filter_map(dev_of).next_back().or_else(|| initial.as_ref().and_then(dev_of));
         let initial = launched.into_iter().filter_map(scan_path).next_back().or_else(|| initial.clone().and_then(scan_path));
         cx.spawn(async move |cx| {
             let handle = cx
                 .open_window(window_options, |window, cx| {
                     let view = cx.new(|cx| {
                         let mut this = app::DiskApp::new(initial, window, cx);
-                        if want_dev {
-                            this.open_dev(window, cx);
+                        if let Some(repo) = want_dev {
+                            this.open_dev_at(repo, window, cx);
                         }
                         this
                     });
@@ -169,8 +170,8 @@ fn main() {
                     .update(cx, |root, window, cx| {
                         window.activate_window();
                         let Ok(view) = root.view().clone().downcast::<app::DiskApp>() else { return };
-                        if action == otherwise::Action::Dev {
-                            view.update(cx, |this, cx| this.open_dev(window, cx));
+                        if let otherwise::Action::Dev(repo) = action {
+                            view.update(cx, |this, cx| this.open_dev_at(repo, window, cx));
                         } else if let Some(path) = scan_path(action) {
                             view.update(cx, |this, cx| this.start_scan(path, window, cx));
                         }

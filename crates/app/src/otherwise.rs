@@ -21,8 +21,8 @@ pub enum Action {
     /// Bring the window to the front.
     Focus,
     Scan(PathBuf),
-    /// Open Developer projects.
-    Dev,
+    /// Open Developer projects; with a repository rama sent, its worktrees first.
+    Dev(Option<PathBuf>),
 }
 
 /// Build folders worth this share of a volume's used space make its low-space alert open
@@ -36,7 +36,7 @@ pub fn action(link: &Link) -> Option<Action> {
         return None;
     }
     if link.at(0) == Some("dev") {
-        return Some(Action::Dev);
+        return Some(Action::Dev(link.get("repo").map(PathBuf::from).filter(|p| p.is_absolute())));
     }
     if link.at(0) == Some("scan")
         && let Some(p) = link.get("path").map(PathBuf::from)
@@ -70,6 +70,23 @@ pub fn rama_installed() -> bool {
 
 pub fn open_in_rama(repo: &Path) -> std::io::Result<()> {
     otherwise_link::open::open_link(&rama_link(repo)).map(|_| ())
+}
+
+/// `otherwise://rama/reclaim?path=…`: rama's "Free up space…" for that repository, where
+/// worktrees are removed (git, its own checks and confirmations), never here.
+pub fn rama_reclaim_link(repo: &Path) -> Link {
+    Link::new(RAMA).segment("reclaim").param("path", repo.to_string_lossy())
+}
+
+pub fn open_rama_reclaim(repo: &Path, link: Option<&str>) -> std::io::Result<()> {
+    // rama's own link when the report has one of ours (`reclaim`), else built here
+    let l = link.and_then(|u| Link::parse(u).ok()).filter(|l| l.app == RAMA && l.at(0) == Some("reclaim")).unwrap_or_else(|| rama_reclaim_link(repo));
+    otherwise_link::open::open_link(&l).map(|_| ())
+}
+
+/// What rama reported about its worktrees on this computer (`<data root>/rama/worktrees/`).
+pub fn rama_report(root: &Root) -> Option<otherwise_link::worktrees::Report> {
+    otherwise_link::worktrees::read(root, RAMA).ok().flatten()
 }
 
 /// Worktree folders rama has listed (`<data root>/rama/worktrees.txt`, one path per line).
@@ -307,8 +324,15 @@ mod tests {
 
     #[test]
     fn dev_and_rama_links() {
-        assert_eq!(action(&Link::parse(&dev_link().to_url()).unwrap()), Some(Action::Dev));
-        assert_eq!(action(&Link::parse("otherwise-diskmap://dev").unwrap()), Some(Action::Dev));
+        assert_eq!(action(&Link::parse(&dev_link().to_url()).unwrap()), Some(Action::Dev(None)));
+        assert_eq!(action(&Link::parse("otherwise-diskmap://dev").unwrap()), Some(Action::Dev(None)));
+        assert_eq!(action(&Link::parse("otherwise://diskmap/dev?repo=relative").unwrap()), Some(Action::Dev(None)));
+        let shop = if cfg!(windows) { PathBuf::from(r"C:\w\shop") } else { PathBuf::from("/w/shop") };
+        let from_rama = Link::new(APP_ID).segment("dev").param("repo", shop.to_string_lossy());
+        assert_eq!(action(&Link::parse(&from_rama.to_url()).unwrap()), Some(Action::Dev(Some(shop.clone()))));
+        let rc = rama_reclaim_link(&shop);
+        assert!(rc.to_url().starts_with("otherwise://rama/reclaim?path="), "{}", rc.to_url());
+        assert_eq!(Link::parse(&rc.to_url()).unwrap().get("path").map(PathBuf::from), Some(shop));
         let repo = if cfg!(windows) { PathBuf::from(r"C:\code\app ñ") } else { PathBuf::from("/code/app ñ") };
         let l = rama_link(&repo);
         assert!(l.to_url().starts_with("otherwise://rama/repo?path="), "{}", l.to_url());
