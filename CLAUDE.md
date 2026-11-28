@@ -35,7 +35,13 @@ crates/app    `diskmap` desktop app (GPUI + gpui-component); otherwise.rs = othe
 - The scanner never follows symlinks and counts hard links once; keep it that way.
 - Every scan/layout change ships with a test (`crates/scan/tests/scan.rs`, `tests/dev.rs`).
 - rama: "Open in rama" uses `otherwise://rama/repo?path=…`; rama's worktrees come from
-  `<data root>/rama/worktrees.txt` (read only). The low-space Today alert links to
+  `<data root>/rama/worktrees.txt` and its report `<data root>/rama/worktrees/<host>.json`
+  (otherwise-link `worktrees`, SPEC §13; read only, this computer's file only). The Dev view's
+  Worktrees section shows it; rama's worktree folders outside the roots are searched too
+  (`dev::with_rama_roots`), and only folders our own `dev::find` classified are selectable
+  ("Select unused" = `dev::unused_in`: removable worktrees and rama's `offered` folders, never
+  with changes). Worktrees are never removed here: "Free up space in rama…" opens
+  `otherwise://rama/reclaim?path=…`. `otherwise://diskmap/dev?repo=…` opens the view on a repo. The low-space Today alert links to
   `otherwise://diskmap/dev` when the saved `dev-summary.json` is ≥ 10 % of the volume's used space.
 - otherwise-link is pinned by git tag; adding / bumping it must only add its own crates to
   Cargo.lock. Tests use temp dirs (`Root::at`, explicit `Locations`), never the real shared folder.

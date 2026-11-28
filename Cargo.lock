@@ -1482,7 +1482,7 @@ dependencies = [
 
 [[package]]
 name = "diskmap-app"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -1507,11 +1507,11 @@ dependencies = [
 
 [[package]]
 name = "diskmap-i18n"
-version = "0.6.2"
+version = "0.7.0"
 
 [[package]]
 name = "diskmap-scan"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "rayon",
  "tempfile",
@@ -4703,8 +4703,8 @@ dependencies = [
 
 [[package]]
 name = "otherwise-link"
-version = "0.2.0"
-source = "git+https://github.com/otherwisetech/otherwise-link?tag=v0.2.0#8e4cc8c298e9c5c37a7c02bc061e1c8fbee50b2f"
+version = "0.7.0"
+source = "git+https://github.com/otherwisetech/otherwise-link?tag=v0.7.0#51602ed65c3f5a6637472bc9a9621668bf1332c3"
 dependencies = [
  "chrono",
  "rusqlite",

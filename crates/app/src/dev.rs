@@ -4,16 +4,21 @@
 //! is pre-selected; each row says what it is and why it is safe. Cleanup moves only regenerable
 //! folders to the Trash, after an in-app list of every path and size and a second, native
 //! confirmation; `scan::dev::delete_with` re-checks each one (`scan::safety` exclusions included).
+//! rama's worktrees report (otherwise-link SPEC §13) adds a "Worktrees" section: each worktree's
+//! size, build folders and why rama would or wouldn't remove it. Its worktree folders are searched
+//! too, so every build folder offered here comes from our own scan; rama's report never makes
+//! anything deletable. Worktrees are removed in rama ("Free up space in rama…"), never here.
 use crate::app::DiskApp;
 use crate::theme::Tokens;
 use crate::ui::{self, icon};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
-use gpui_component::IconName;
+use gpui_component::{Disableable as _, IconName};
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputState};
 use scan::dev::{self, Artifact, ArtifactKind, Project, Refusal, Report};
 use scan::{Progress, human};
+use otherwise_link::worktrees;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -39,7 +44,94 @@ pub struct DevView {
     pub running: bool,
     /// (freed, left alone with why) of the last cleanup.
     pub result: Option<(u64, Vec<(PathBuf, String)>)>,
+    /// rama's worktrees report on this computer (paths made canonical like our scan's).
+    pub worktrees: Option<Rc<worktrees::Report>>,
+    /// The repository a link from rama asked for: listed first and unfolded.
+    pub focus: Option<PathBuf>,
+    /// Repositories of the Worktrees section that are folded away.
+    pub folded: HashSet<PathBuf>,
     generation: u64,
+}
+
+/// The folders searched: the user's roots plus rama's worktrees that none of them covers.
+pub fn with_rama_roots(roots: &[PathBuf], rama: Option<&worktrees::Report>, home: &Path) -> Vec<PathBuf> {
+    let mut out = roots.to_vec();
+    for w in rama.map(|r| r.paths()).unwrap_or_default() {
+        if w.is_absolute() && !out.iter().any(|r| w.starts_with(r)) && !scan::safety::protected_tree(&w, Some(home)) {
+            out.push(w);
+        }
+    }
+    out
+}
+
+/// The report with every path as our scan spells it (`dev::canonical`), where it still exists.
+pub fn canonical_report(mut r: worktrees::Report) -> worktrees::Report {
+    let c = |p: &mut PathBuf| {
+        if let Ok(x) = dev::canonical(p) {
+            *p = x;
+        }
+    };
+    for repo in &mut r.repos {
+        c(&mut repo.root);
+        for w in &mut repo.worktrees {
+            c(&mut w.path);
+            for k in &mut w.caches {
+                c(&mut k.path);
+            }
+        }
+    }
+    r
+}
+
+/// Our own scan's build folders in the worktree at `wt` (its project).
+pub fn worktree_folders<'a>(r: &'a Report, wt: &Path) -> Vec<&'a Artifact> {
+    r.projects.iter().filter(|p| p.root == wt).flat_map(|p| p.artifacts.iter()).collect()
+}
+
+/// "Select unused" for one repository: our build folders of the worktrees rama would remove,
+/// and the ones rama offers itself now (idle long enough), when our scan found exactly that
+/// folder. Never anything of a worktree with changes or unpushed work, never a path only rama
+/// listed.
+pub fn unused_in(r: &Report, repo: &worktrees::Repo) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for w in &repo.worktrees {
+        if w.blockers.iter().any(|b| matches!(b, worktrees::Blocker::Changes | worktrees::Blocker::Unreadable)) {
+            continue;
+        }
+        for a in worktree_folders(r, &w.path) {
+            if w.removable || w.caches.iter().any(|c| c.offered && c.path == a.path) {
+                out.push(a.path.clone());
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Repositories in the order shown: the one asked for first, then by name.
+pub fn repo_order<'a>(rep: &'a worktrees::Report, focus: Option<&Path>) -> Vec<&'a worktrees::Repo> {
+    let hit = |r: &worktrees::Repo| focus.is_some_and(|f| r.root == f || r.worktrees.iter().any(|w| w.path == f));
+    let mut v: Vec<&worktrees::Repo> = rep.repos.iter().collect();
+    v.sort_by(|a, b| hit(b).cmp(&hit(a)).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())).then_with(|| a.root.cmp(&b.root)));
+    v
+}
+
+pub fn blocker_text(b: worktrees::Blocker) -> String {
+    use worktrees::Blocker as B;
+    match b {
+        B::Main => i18n::t!("app.dev.wt.why_main"),
+        B::Open => i18n::t!("app.dev.wt.why_open"),
+        B::Locked => i18n::t!("app.dev.wt.why_locked"),
+        B::Changes => i18n::t!("app.dev.wt.why_changes"),
+        B::Unreadable => i18n::t!("app.dev.wt.why_unreadable"),
+        B::Unpushed => i18n::t!("app.dev.wt.why_unpushed"),
+        B::NotMerged => i18n::t!("app.dev.wt.why_not_merged"),
+        B::ProtectedBranch => i18n::t!("app.dev.wt.why_protected_branch"),
+        B::ProtectedPlace => i18n::t!("app.dev.wt.why_protected_place"),
+        B::NotMeasured => i18n::t!("app.dev.wt.why_not_measured"),
+        B::Other => i18n::t!("app.dev.wt.why_other"),
+    }
 }
 
 fn home() -> PathBuf {
@@ -111,12 +203,36 @@ fn age(t: i64) -> String {
     }
 }
 
+/// A link from rama names a repository the last search didn't have: search again.
+fn repo_focus_changed(app: &DiskApp) -> bool {
+    let Some(d) = app.dev.as_ref() else { return false };
+    let Some(f) = d.focus.as_deref() else { return false };
+    !d.worktrees.as_ref().is_some_and(|r| r.repos.iter().any(|x| x.root == f || x.worktrees.iter().any(|w| w.path == f)))
+}
+
 impl DiskApp {
     pub fn open_dev(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.dev.is_none() {
             let text = load_roots().iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ");
             let roots = cx.new(|cx| InputState::new(window, cx).default_value(text));
-            self.dev = Some(DevView { roots, state: DevState::Ready(Rc::new(Report::default())), selected: HashSet::new(), collapsed: HashSet::new(), known: HashSet::new(), rama: false, confirm: false, running: false, result: None, generation: 0 });
+            self.dev = Some(DevView { roots, state: DevState::Ready(Rc::new(Report::default())), selected: HashSet::new(), collapsed: HashSet::new(), known: HashSet::new(), rama: false, confirm: false, running: false, result: None, worktrees: None, focus: None, folded: HashSet::new(), generation: 0 });
+            self.scan_dev(cx);
+        }
+        cx.notify();
+    }
+
+    /// Developer projects, with `repo`'s worktrees first (a link from rama).
+    pub fn open_dev_at(&mut self, repo: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
+        let fresh = self.dev.is_none();
+        self.open_dev(window, cx);
+        if let Some(d) = self.dev.as_mut() {
+            d.focus = repo.map(|p| dev::canonical(&p).unwrap_or(p));
+            if let Some(f) = &d.focus {
+                d.folded.retain(|r| r != f);
+            }
+        }
+        // the report may be newer than the last search
+        if !fresh && repo_focus_changed(self) {
             self.scan_dev(cx);
         }
         cx.notify();
@@ -149,13 +265,15 @@ impl DiskApp {
         let p = progress.clone();
         let first = roots[0].clone();
         let task = cx.background_executor().spawn(async move {
-            let report = dev::find(&roots, Some(&home), &p);
-            let known = crate::otherwise::rama_worktrees(&crate::otherwise::rama_worktrees_file());
+            let wts = crate::otherwise::rama_report(&otherwise_link::Root::system()).map(canonical_report);
+            let report = dev::find(&with_rama_roots(&roots, wts.as_ref(), &home), Some(&home), &p);
+            let mut known = crate::otherwise::rama_worktrees(&crate::otherwise::rama_worktrees_file());
+            known.extend(wts.iter().flat_map(|r| r.paths()));
             let rama = crate::otherwise::rama_installed();
-            (report, known, rama)
+            (report, known, rama, wts)
         });
         cx.spawn(async move |this, cx| {
-            let (report, known, rama) = task.await;
+            let (report, known, rama, wts) = task.await;
             let cancelled = progress.cancel.load(Relaxed);
             this.update(cx, |this, cx| {
                 let Some(d) = this.dev.as_mut().filter(|d| d.generation == generation) else { return };
@@ -169,6 +287,7 @@ impl DiskApp {
                 d.selected = default_selection(&report);
                 d.known = known;
                 d.rama = rama;
+                d.worktrees = wts.map(Rc::new);
                 d.state = DevState::Ready(Rc::new(report));
                 cx.notify();
             })
@@ -353,6 +472,9 @@ impl DiskApp {
         if report.projects.is_empty() && report.caches.is_empty() {
             list = list.child(div().py(px(30.)).text_center().text_size(px(13.)).text_color(t.ink_muted).child(i18n::t!("app.dev.none")));
         }
+        if let Some(w) = d.worktrees.clone().filter(|w| !w.repos.is_empty()) {
+            list = list.child(self.render_worktrees(t, &report, &w, cx));
+        }
         let row_artifact = |a: &Artifact, rel: String, on: bool, i: usize, cx: &mut Context<Self>| {
             let path = a.path.clone();
             let line = div()
@@ -465,6 +587,119 @@ impl DiskApp {
         div().flex().flex_col().flex_1().min_h_0().child(list).child(footer).into_any_element()
     }
 
+    fn open_rama_reclaim(&mut self, repo: PathBuf, link: Option<String>, cx: &mut Context<Self>) {
+        let task = cx.background_executor().spawn(async move { crate::otherwise::open_rama_reclaim(&repo, link.as_deref()).map_err(|e| e.to_string()) });
+        cx.spawn(async move |this, cx| {
+            if let Err(e) = task.await {
+                this.update(cx, |this, cx| this.toast(i18n::t!("app.dev.rama_failed", detail = e), cx)).ok();
+            }
+        })
+        .detach();
+    }
+
+    /// rama's worktrees, by repository: size, our build folders in each (selectable), and why
+    /// rama would or wouldn't remove it. Removing happens in rama.
+    fn render_worktrees(&self, t: &Tokens, report: &Report, w: &worktrees::Report, cx: &mut Context<Self>) -> AnyElement {
+        let Some(d) = self.dev.as_ref() else { return div().into_any_element() };
+        let small = |s: String| div().text_size(px(12.)).line_height(px(16.)).text_color(t.ink_muted).child(s);
+        let chip = |text: String, c: Hsla| div().flex_none().px(px(6.)).rounded(px(5.)).bg(c.opacity(0.14)).text_color(c).text_size(px(10.5)).child(text);
+        let when = chrono::DateTime::parse_from_rfc3339(&w.updated_at).map(|x| x.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default(); // i18n-ok: date format
+        let mut sec = div()
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .mb(px(14.))
+            .p(px(12.))
+            .rounded(px(10.))
+            .border_1()
+            .border_color(t.border)
+            .child(div().flex().items_center().gap(px(8.)).child(icon(IconName::Folder, 15., t.brand)).child(div().flex_1().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).child(i18n::t!("app.dev.wt.title"))).child(small(i18n::t!("app.dev.wt.reported", when = when))))
+            .child(small(i18n::t!("app.dev.wt.hint")));
+        for (ri, repo) in repo_order(w, d.focus.as_deref()).into_iter().enumerate() {
+            let open = !d.folded.contains(&repo.root);
+            let unused = unused_in(report, repo);
+            let toggle = repo.root.clone();
+            let mut head = div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .pt(px(8.))
+                .mt(px(4.))
+                .border_t_1()
+                .border_color(t.border)
+                .child(
+                    div()
+                        .id(("wt-repo", ri))
+                        .flex()
+                        .flex_1()
+                        .min_w_0()
+                        .items_center()
+                        .gap(px(8.))
+                        .cursor_pointer()
+                        .child(icon(if open { IconName::ChevronDown } else { IconName::ChevronRight }, 13., t.ink_muted))
+                        .child(div().flex_none().max_w(px(240.)).truncate().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).child(repo.name.clone()))
+                        .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(t.ink_muted).child(i18n::tn!("app.dev.wt.repo_line", repo.worktrees.len() as u64, size = human(repo.bytes()))))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(d) = this.dev.as_mut()
+                                && !d.folded.remove(&toggle)
+                            {
+                                d.folded.insert(toggle.clone());
+                            }
+                            cx.notify();
+                        })),
+                );
+            if repo.reclaimable > 0 {
+                head = head.child(chip(i18n::t!("app.dev.wt.rama_frees", size = human(repo.reclaimable)), t.accent));
+            }
+            if !unused.is_empty() {
+                let paths = unused.clone();
+                head = head.child(ui::outline_button(t, ("wt-unused", ri)).h(px(24.)).px(px(8.)).text_size(px(12.)).child(i18n::tn!("app.dev.wt.select_unused", unused.len() as u64)).on_click(cx.listener(move |this, _, _, cx| this.dev_toggle(paths.clone(), true, cx))));
+            }
+            if d.rama {
+                let (r, link) = (repo.root.clone(), repo.link.clone());
+                head = head.child(ui::outline_button(t, ("wt-reclaim", ri)).h(px(24.)).px(px(8.)).text_size(px(12.)).child(i18n::t!("app.dev.wt.reclaim_in_rama")).on_click(cx.listener(move |this, _, _, cx| this.open_rama_reclaim(r.clone(), link.clone(), cx))));
+                let r = repo.root.clone();
+                head = head.child(ui::outline_button(t, ("wt-rama", ri)).h(px(24.)).px(px(8.)).text_size(px(12.)).child(i18n::t!("app.dev.open_rama")).on_click(cx.listener(move |this, _, _, cx| this.open_rama(r.clone(), cx))));
+            }
+            sec = sec.child(head);
+            if !open {
+                continue;
+            }
+            for (wi, wt) in repo.worktrees.iter().enumerate() {
+                let ours = worktree_folders(report, &wt.path);
+                let paths: Vec<PathBuf> = ours.iter().map(|a| a.path.clone()).collect();
+                let build: u64 = ours.iter().map(|a| a.bytes).sum();
+                let all = !paths.is_empty() && paths.iter().all(|x| d.selected.contains(x));
+                let name = wt.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| wt.path.display().to_string());
+                let status: AnyElement = if wt.removable {
+                    chip(i18n::t!("app.dev.wt.removable"), t.accent).into_any_element()
+                } else {
+                    div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(if wt.blockers.iter().any(|b| matches!(b, worktrees::Blocker::Changes | worktrees::Blocker::Unpushed | worktrees::Blocker::NotMerged)) { t.warn } else { t.ink_muted }).child(wt.blockers.iter().map(|b| blocker_text(*b)).collect::<Vec<_>>().join(", ")).into_any_element() // i18n-ok: separator
+                };
+                let id = ri * 10_000 + wi;
+                let pick = paths.clone();
+                let lead = Checkbox::new(("wt-sel", id)).checked(all).when(paths.is_empty(), |c| c.disabled(true)).on_click(cx.listener(move |this, on: &bool, _, cx| this.dev_toggle(pick.clone(), *on, cx)));
+                sec = sec.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .pl(px(20.))
+                        .py(px(3.))
+                        .child(lead)
+                        .child(div().flex_none().max_w(px(200.)).truncate().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(name))
+                        .when(wt.main, |x| x.child(chip(i18n::t!("app.dev.wt.main"), t.ink_muted)))
+                        .when_some(wt.branch.clone(), |x, b| x.child(div().flex_none().max_w(px(160.)).truncate().text_size(px(11.)).font_family("Menlo").text_color(t.ink_muted).child(b))) // i18n-ok: font
+                        .child(status)
+                        .child(div().flex_1())
+                        .child(div().flex_none().w(px(140.)).text_right().text_size(px(12.)).text_color(t.ink_muted).child(if paths.is_empty() { i18n::t!("app.dev.wt.no_builds") } else { i18n::t!("app.dev.wt.builds", size = human(build)) }))
+                        .child(div().flex_none().w(px(80.)).text_right().text_size(px(13.)).child(wt.bytes.map(human).unwrap_or_else(|| "—".into()))), // i18n-ok: placeholder
+                );
+            }
+        }
+        sec.into_any_element()
+    }
+
     /// First confirmation: every path and size, and how they go.
     fn render_dev_confirm(&self, t: &Tokens, cx: &mut Context<Self>) -> AnyElement {
         let Some(DevState::Ready(report)) = self.dev.as_ref().map(|d| &d.state) else { return div().into_any_element() };
@@ -516,7 +751,7 @@ impl DiskApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{Artifact, ArtifactKind, Project, Report, default_selection, parse_roots, plan};
+    use super::{Artifact, ArtifactKind, Project, Report, canonical_report, default_selection, parse_roots, plan, repo_order, unused_in, with_rama_roots, worktree_folders, worktrees};
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
 
@@ -543,6 +778,92 @@ mod tests {
         assert_eq!(order, [Path::new("/c/old/target"), Path::new("/c/old/node_modules"), Path::new("/h/.cache/x-target")]);
         assert_eq!(p[0].1.map(|p| p.root.as_path()), Some(Path::new("/c/old")));
         assert!(p[2].1.is_none());
+    }
+
+    fn wt(path: &str, removable: bool, blockers: Vec<worktrees::Blocker>, caches: Vec<(&str, bool)>) -> worktrees::Worktree {
+        worktrees::Worktree {
+            path: PathBuf::from(path),
+            branch: Some("b".into()),
+            main: false,
+            bytes: Some(100),
+            touched: None,
+            removable,
+            blockers,
+            caches: caches.into_iter().map(|(p, offered)| worktrees::Cache { path: PathBuf::from(p), kind: worktrees::CacheKind::Target, bytes: 10, offered }).collect(),
+        }
+    }
+
+    fn rrepo(root: &str, name: &str, wts: Vec<worktrees::Worktree>) -> worktrees::Repo {
+        worktrees::Repo { root: PathBuf::from(root), name: name.into(), updated_at: String::new(), default_branch: None, reclaimable: 0, link: None, worktrees: wts, shared: vec![] }
+    }
+
+    #[test]
+    fn unused_takes_only_our_folders_of_worktrees_rama_would_clean() {
+        use worktrees::Blocker as B;
+        let proj = |root: &str, arts: Vec<Artifact>| Project { root: root.into(), git: true, worktree: true, modified: 0, bytes: arts.iter().map(|a| a.bytes).sum(), artifacts: arts };
+        let r = Report {
+            projects: vec![
+                proj("/w/done", vec![art("/w/done/target", ArtifactKind::Target, 5, 0), art("/w/done/node_modules", ArtifactKind::NodeModules, 5, 0)]),
+                proj("/w/idle", vec![art("/w/idle/target", ArtifactKind::Target, 5, 0), art("/w/idle/node_modules", ArtifactKind::NodeModules, 5, 0)]),
+                proj("/w/dirty", vec![art("/w/dirty/target", ArtifactKind::Target, 5, 0)]),
+                proj("/w/busy", vec![art("/w/busy/target", ArtifactKind::Target, 5, 0)]),
+            ],
+            caches: vec![],
+        };
+        let repo = rrepo(
+            "/w/main",
+            "shop",
+            vec![
+                // rama would remove it: all our folders in it
+                wt("/w/done", true, vec![], vec![]),
+                // unpushed, but rama offers its idle target: only that one
+                wt("/w/idle", false, vec![B::Unpushed], vec![("/w/idle/target", true), ("/w/idle/node_modules", false)]),
+                // changes: never, even if the report says offered
+                wt("/w/dirty", false, vec![B::Changes], vec![("/w/dirty/target", true)]),
+                // offered by rama but a path our scan doesn't have: not selectable
+                wt("/w/busy", false, vec![B::NotMerged], vec![("/w/busy/other/target", true)]),
+                // rama lists it, our scan found nothing there
+                wt("/w/gone", true, vec![], vec![("/w/gone/target", true)]),
+            ],
+        );
+        let got = unused_in(&r, &repo);
+        assert_eq!(got, [PathBuf::from("/w/done/node_modules"), PathBuf::from("/w/done/target"), PathBuf::from("/w/idle/target")]);
+        assert!(default_selection(&r).is_empty(), "the report selects nothing by itself");
+        assert_eq!(worktree_folders(&r, Path::new("/w/idle")).len(), 2);
+    }
+
+    #[test]
+    fn rama_worktrees_are_searched_and_the_asked_repo_comes_first() {
+        let mut rep = worktrees::Report::new("rama", "h");
+        rep.repos = vec![rrepo("/w/zeta", "zeta", vec![wt("/w/zeta", false, vec![], vec![])]), rrepo("/w/alpha", "Alpha", vec![wt("/w/alpha", false, vec![], vec![]), wt("/elsewhere/alpha-fix", false, vec![], vec![])])];
+        let names = |f: Option<&Path>| repo_order(&rep, f).iter().map(|r| r.name.clone()).collect::<Vec<_>>();
+        assert_eq!(names(None), ["Alpha", "zeta"]);
+        assert_eq!(names(Some(Path::new("/w/zeta"))), ["zeta", "Alpha"]);
+        assert_eq!(names(Some(Path::new("/elsewhere/alpha-fix"))), ["Alpha", "zeta"]);
+        let home = PathBuf::from("/home/ana");
+        let roots = with_rama_roots(&[PathBuf::from("/w")], Some(&rep), &home);
+        assert_eq!(roots, [PathBuf::from("/w"), PathBuf::from("/elsewhere/alpha-fix")], "only worktrees no root covers are added");
+        assert_eq!(with_rama_roots(&[PathBuf::from("/w")], None, &home), [PathBuf::from("/w")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_worktree_outside_the_roots_gets_its_build_folders_from_our_scan() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = scan::dev::canonical(dir.path()).unwrap();
+        let (roots, wt_dir) = (base.join("code"), base.join("elsewhere").join("shop-fix"));
+        std::fs::create_dir_all(&roots).unwrap();
+        std::fs::create_dir_all(wt_dir.join("target").join("debug")).unwrap();
+        std::fs::write(wt_dir.join("Cargo.toml"), "[package]\n").unwrap();
+        std::fs::write(wt_dir.join(".git"), "gitdir: /nowhere\n").unwrap();
+        std::fs::write(wt_dir.join("target").join("debug").join("x"), vec![0u8; 4096]).unwrap();
+        let mut rep = worktrees::Report::new("rama", "h");
+        rep.repos = vec![rrepo(base.join("main").to_str().unwrap(), "shop", vec![wt(wt_dir.to_str().unwrap(), true, vec![], vec![])])];
+        let rep = canonical_report(rep);
+        // the temp folder plays the home folder (searching outside a home applies the system rules)
+        let found = scan::dev::find(&with_rama_roots(&[roots], Some(&rep), &base), Some(&base), &scan::Progress::default());
+        assert_eq!(worktree_folders(&found, &wt_dir).iter().map(|a| a.path.clone()).collect::<Vec<_>>(), [wt_dir.join("target")]);
+        assert_eq!(unused_in(&found, &rep.repos[0]), [wt_dir.join("target")]);
     }
 
     #[cfg(unix)]
